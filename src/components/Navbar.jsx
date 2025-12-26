@@ -38,8 +38,7 @@ export function NavbarDemo() {
   return (
     <>
       {/* ================= Desktop Navbar ================= */}
-      <div className="hidden lg:block">
-        <Navbar>
+        <Navbar className="hidden lg:flex">
           <NavBody className="bg-[#6E4B3A] text-white px-6 py-3 shadow-md">
             <NavbarLogo />
             <NavItems items={navItems} />
@@ -49,7 +48,7 @@ export function NavbarDemo() {
             </div>
           </NavBody>
         </Navbar>
-      </div>
+      
 
       {/* ================= Mobile Speed Dial ================= */}
       <Box className="lg:hidden fixed bottom-4 right-4 z-[999]">
