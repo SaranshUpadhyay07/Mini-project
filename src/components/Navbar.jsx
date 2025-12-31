@@ -39,12 +39,11 @@ export function NavbarDemo() {
     <>
       {/* ================= Desktop Navbar ================= */}
         <Navbar className="hidden lg:flex">
-          <NavBody className="bg-[#6E4B3A] text-white px-6 py-3 shadow-md">
+          <NavBody className="bg-[#f4622d] px-6 py-4 shadow-md">
             <NavbarLogo />
             <NavItems items={navItems} />
             <div className="flex items-center gap-4">
-              <NavbarButton variant="secondary">Login</NavbarButton>
-              <NavbarButton variant="primary">Book a Call</NavbarButton>
+              <NavbarButton variant="primary">Login / Sign Up</NavbarButton>
             </div>
           </NavBody>
         </Navbar>
@@ -57,9 +56,9 @@ export function NavbarDemo() {
           icon={<SpeedDialIcon />}
           FabProps={{
             sx: {
-              bgcolor: "#6E4B3A",
+              bgcolor: "#f4622d",
               color: "white",
-              "&:hover": { bgcolor: "#5a3d2f" },
+              "&:hover": { bgcolor: "#fa4909ff" },
             },
           }}
         >

@@ -94,13 +94,13 @@ export const NavItems = ({
         <a
           onMouseEnter={() => setHovered(idx)}
           onClick={onItemClick}
-          className="relative px-4 py-2 text-white "
+          className="relative px-4 py-2 hover:text-[#f4622d] text-white "
           key={`link-${idx}`}
           href={item.link}>
           {hovered === idx && (
             <motion.div
               layoutId="hovered"
-              className="absolute inset-0 h-full w-full rounded-full bg-[#2C2C2C]" />
+              className="absolute inset-0 h-full w-full rounded-full border-3 border-white bg-white " />
           )}
           <span className="relative z-20">{item.name}</span>
         </a>
@@ -199,7 +199,7 @@ export const NavbarLogo = () => {
         alt="logo"
         width={30}
         height={30} />
-      <span className="font-medium text-black ">Startup</span>
+      <span className="font-semibold text-white startup-name">Pathgamini</span>
     </a>
   );
 };
@@ -213,7 +213,7 @@ export const NavbarButton = ({
   ...props
 }) => {
   const baseStyles =
-    "px-4 py-2 rounded-md bg-white button bg-white text-black text-sm font-bold relative cursor-pointer hover:-translate-y-0.5 transition duration-100 inline-block text-center";
+    "px-4 py-2 rounded-md bg-white button bg-[#670E10] text-white text-sm font-bold relative cursor-pointer hover:-translate-y-0.5 transition duration-100 inline-block text-center";
 
   const variantStyles = {
     primary:
