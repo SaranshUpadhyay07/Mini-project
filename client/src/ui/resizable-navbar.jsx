@@ -195,11 +195,12 @@ export const NavbarLogo = () => {
       href="#"
       className="relative z-20 mr-4 flex items-center space-x-2 px-2 py-1 text-sm font-normal text-black">
       <img
-        src="https://assets.aceternity.com/logo-dark.png"
-        alt="logo"
-        width={30}
-        height={30} />
-      <span className="font-semibold text-white startup-name">Pathgamini</span>
+        src="/unnamed-removebg-preview.png"
+        alt="Patha Gamini Logo"
+        width={40}
+        height={40}
+        className="object-contain" />
+      <span className="font-semibold text-white startup-name">Patha Gamini</span>
     </a>
   );
 };
