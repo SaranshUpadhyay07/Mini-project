@@ -1,20 +1,22 @@
 from fastapi import FastAPI
-from Planner import chat
+from Planner import send
 from pydantic import BaseModel
 
 app = FastAPI()
 
 
-@app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
-    print(request)
-    response = chat.send_message(request.message)
-    print(response)
-    return {"response": response.text}
+class ChatRequest(BaseModel):
+    message: str
 
+
+@app.post("/chat")
+def chat_endpoint(request: ChatRequest):
+    return {"response": send(request.message)}
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+# will start at http://0.0.0.0:8000 or http://localhost:8000
