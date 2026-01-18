@@ -1,3 +1,5 @@
+import json
+
 from fastapi import FastAPI
 from Planner import send
 from pydantic import BaseModel
@@ -11,7 +13,8 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 def chat_endpoint(request: ChatRequest):
-    return {"response": send(request.message)}
+    raw = send(request.message)  # JSON string
+    return json.loads(raw)  # real JSON object
 
 
 if __name__ == "__main__":
