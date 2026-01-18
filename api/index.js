@@ -1,9 +1,14 @@
-const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import connectDB from './config/db.config.js';
+import authRoutes from './routes/auth.routes.js';
 
 // Load environment variables
 dotenv.config();
+
+// Connect to MongoDB
+connectDB();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,8 +35,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes will be added here
-// Example: app.use('/api/users', require('./routes/users'));
+// API routes
+app.use('/api/auth', authRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -55,4 +60,4 @@ app.listen(PORT, () => {
   console.log(`📍 API: http://localhost:${PORT}`);
 });
 
-module.exports = app;
+export default app;

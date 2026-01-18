@@ -7,6 +7,9 @@ package-lock.json
 .env.local
 .env.*.local
 
+# Firebase Service Account (CRITICAL - DO NOT COMMIT)
+config/firebase-service-account.json
+
 # Logs
 logs
 *.log
