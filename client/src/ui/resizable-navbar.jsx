@@ -93,8 +93,8 @@ export const NavItems = ({
       {items.map((item, idx) => (
         <a
           onMouseEnter={() => setHovered(idx)}
-          onClick={onItemClick}
-          className="relative px-4 py-2 hover:text-[#f4622d] text-white "
+          onClick={(e) => onItemClick?.(e, item)}
+          className="relative px-4 py-2 hover:text-[#f4622d] text-white cursor-pointer"
           key={`link-${idx}`}
           href={item.link}>
           {hovered === idx && (
