@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/db.config.js';
 import authRoutes from './routes/auth.routes.js';
+import placesRoutes from './routes/places.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -37,6 +38,7 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/places', placesRoutes);
 
 // 404 handler
 app.use((req, res) => {

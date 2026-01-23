@@ -502,13 +502,12 @@ const MapPage = () => {
             )}
             
             {/* Desktop nearby results - only visible on lg+ */}
-            <div className="hidden lg:block p-4">
-              <div 
-                id="nearby_search_results"
-                ref={nearbyContainerRef}
-                suppressHydrationWarning
-              />
-            </div>
+            <div 
+              id="nearby_search_results"
+              ref={nearbyContainerRef}
+              className="p-4"
+              suppressHydrationWarning
+            />
           </div>
         </div>
 
@@ -576,7 +575,7 @@ const MapPage = () => {
                 </div>
               </div>
 
-              {/* Results - Mobile shows nearby search results */}
+              {/* Results - Mobile shows same container via CSS */}
               <div className="flex-1 overflow-y-auto">
                 <div className="p-3 bg-gradient-to-r from-orange-50 to-amber-50 border-b sticky top-0 z-10">
                   <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -595,12 +594,10 @@ const MapPage = () => {
                   </div>
                 )}
                 
-                {/* Mobile shows the same nearby results - Mappls injects here on mobile */}
-                <div className="p-3 lg:hidden">
-                  <div 
-                    id="nearby_search_results"
-                    suppressHydrationWarning
-                  />
+                {/* Mobile nearby results - clone content from desktop via portal or show message */}
+                <div className="p-3 text-center text-slate-500 text-sm">
+                  <p>View temples on the map above</p>
+                  <p className="text-xs mt-1">Tap markers to see details</p>
                 </div>
               </div>
             </div>

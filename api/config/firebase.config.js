@@ -15,7 +15,7 @@ let firebaseAdmin;
 
 try {
   const serviceAccount = JSON.parse(
-    readFileSync(join(__dirname, 'firebase-service-account.json'), 'utf-8')
+    readFileSync(join(__dirname, 'pilgrim-itinerary-odisha-firebase-adminsdk-fbsvc-c490868502.json'), 'utf-8')
   );
   
   firebaseAdmin = admin.initializeApp({
@@ -26,7 +26,7 @@ try {
   console.log('✅ Firebase Admin initialized successfully');
 } catch (error) {
   console.error('❌ Firebase Admin initialization failed:', error.message);
-  console.log('⚠️  Please download the service account key from Firebase Console');
+  console.log('⚠️  Continuing without Firebase - Places API will still work');
 }
 
 export default firebaseAdmin;
