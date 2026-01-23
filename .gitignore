@@ -1,0 +1,15 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+
+
+# OS / editor junk
+.DS_Store
+.idea/
+.vscode/
