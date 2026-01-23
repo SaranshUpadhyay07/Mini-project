@@ -6,11 +6,8 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
-ENV/
-env/
 
-# Environment variables / secrets
-.env
+
 
 # OS / editor junk
 .DS_Store
