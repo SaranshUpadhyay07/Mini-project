@@ -1,4 +1,5 @@
 import os
+import threading
 
 from dotenv import load_dotenv
 from google import genai
@@ -6,9 +7,11 @@ from google.genai import types
 
 load_dotenv()
 
-# Create a single shared chat instance
+# Single shared client; separate chat session per user_id.
 _client = None
-_chat = None
+_lock = threading.Lock()
+_chats = {}  # user_id -> chat session
+_chat_locks = {}  # user_id -> lock (prevents same-user concurrent interleaving)
 model = "gemini-3-flash-preview"
 
 SYSTEM_INSTRUCTION = (
@@ -75,27 +78,39 @@ SYSTEM_INSTRUCTION = (
 
 
 
-
-def _get_chat():
-    global _client, _chat
-    if _chat is None:
+def _get_client():
+    global _client
+    if _client is None:
         api_key = os.getenv("Gemini_api_key")
         if not api_key:
             raise RuntimeError("no api key found")
         _client = genai.Client(api_key=api_key)
-        _chat = _client.chats.create(
-            model=model,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                response_mime_type="application/json",
-            ),
-        )
-    return _chat
+    return _client
 
 
-def send(message: str) -> str:
-    chat = _get_chat()
-    resp = chat.send_message(message)
+def _get_chat_for_user(user_id: str):
+    if not user_id:
+        raise ValueError("user_id is required")
+
+    with _lock:
+        chat = _chats.get(user_id)
+        if chat is None:
+            chat = _get_client().chats.create(
+                model=model,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                ),
+            )
+            _chats[user_id] = chat
+            _chat_locks[user_id] = threading.Lock()
+        return chat, _chat_locks[user_id]
+
+
+def send(user_id: str, message: str) -> str:
+    chat, chat_lock = _get_chat_for_user(user_id)
+    with chat_lock:
+        resp = chat.send_message(message)
     if resp is None:
         return ""
     return resp.text or "some issue"
