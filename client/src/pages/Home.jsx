@@ -1,40 +1,69 @@
-import { NavbarDemo } from "../components/Navbar";
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
-export default function Home() {
+const Home = () => {
+  const navigate = useNavigate();
+  const { currentUser, logout } = useAuth();
+
+  const handleLogout = async () => {
+    const result = await logout();
+    if (result.success) {
+      navigate('/signin');
+    }
+  };
+
   return (
-    <div className="flex flex-col min-h-screen bg-white">
-      <NavbarDemo />
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-50">
+      <header className="p-4 flex justify-between items-center">
+        <h1 className="text-2xl font-bold text-orange-600">
+          Patha Gamini
+        </h1>
 
-      {/* Dummy content */}
-      <main className="mt-24 space-y-16 px-6 pb-20">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <section
-            key={i}
-            className="mx-auto max-w-5xl rounded-xl border border-gray-200 bg-gray-50 p-8 shadow-sm"
-          >
-            <h2 className="mb-3 text-2xl font-semibold text-gray-800">
-              Section {i + 1}
-            </h2>
+        <div className="flex gap-3">
+          {currentUser ? (
+            <>
+              <button
+                onClick={() => navigate('/map')}
+                className="px-6 py-2 bg-orange-600 text-white font-bold rounded-xl"
+              >
+                Explore Map
+              </button>
 
-            <p className="text-gray-600 leading-relaxed">
-              This is dummy content to test scrolling behavior of your navbar.
-              You can replace this later with pilgrim information such as temple
-              details, darshan timings, travel guidance, rituals, or FAQs.
-            </p>
+              <button
+                onClick={() => navigate('/profile')}
+                className="px-6 py-2 border-2 border-orange-600 text-orange-600 font-bold rounded-xl"
+              >
+                Profile
+              </button>
 
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, j) => (
-                <div
-                  key={j}
-                  className="h-24 rounded-lg bg-white border shadow-sm flex items-center justify-center text-gray-500"
-                >
-                  Card {j + 1}
-                </div>
-              ))}
-            </div>
-          </section>
-        ))}
-      </main>
+              <button
+                onClick={handleLogout}
+                className="px-6 py-2 border-2 border-orange-600 text-orange-600 font-bold rounded-xl"
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => navigate('/signin')}
+                className="px-6 py-2 border-2 border-orange-600 text-orange-600 font-bold rounded-xl"
+              >
+                Sign In
+              </button>
+
+              <button
+                onClick={() => navigate('/signup')}
+                className="px-6 py-2 bg-orange-600 text-white font-bold rounded-xl"
+              >
+                Sign Up
+              </button>
+            </>
+          )}
+        </div>
+      </header>
     </div>
   );
-}
+};
+
+export default Home;
