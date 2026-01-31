@@ -36,6 +36,7 @@ export const AuthProvider = ({ children }) => {
       );
 
       const user = userCredential.user;
+      setCurrentUser(user); // avoid auth-state race before listener fires
       const token = await user.getIdToken();
 
       // Sync user with backend (MongoDB)
@@ -71,6 +72,7 @@ export const AuthProvider = ({ children }) => {
         email,
         password
       );
+      setCurrentUser(userCredential.user); // keep ProtectedRoute from redirecting before listener updates
       return { success: true, user: userCredential.user };
     } catch (error) {
       console.error("Login error:", error);
@@ -84,6 +86,7 @@ export const AuthProvider = ({ children }) => {
       const provider = new GoogleAuthProvider();
       const userCredential = await signInWithPopup(auth, provider);
       const user = userCredential.user;
+      setCurrentUser(user);
       const token = await user.getIdToken();
 
       const res = await fetch("http://localhost:5000/api/auth/sync", {

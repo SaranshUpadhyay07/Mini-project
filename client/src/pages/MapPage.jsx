@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { IconMapPin, IconX, IconRoute, IconCurrentLocation, IconSearch, IconChevronDown, IconChevronUp, IconAlertCircle, IconCheck, IconHome, IconNavigation } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
+import { NavbarDemo } from '../components/Navbar';
 
 const MapPage = () => {
   const navigate = useNavigate();
@@ -397,176 +398,170 @@ const MapPage = () => {
   };
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-900 overflow-hidden">
+    <div className="w-full h-screen flex flex-col overflow-hidden bg-white text-slate-900">
       {/* Top Navigation Bar */}
-      <header className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 text-white px-4 py-3 flex items-center justify-between shadow-lg z-50 safe-area-top">
-        <button 
-          onClick={() => navigate('/')}
-          className="p-2 -ml-2 hover:bg-white/20 rounded-full transition-colors"
-        >
-          <IconHome size={24} />
-        </button>
-        <div className="flex items-center gap-2">
-          <IconMapPin size={24} />
-          <h1 className="text-lg font-bold tracking-tight">Pilgrim Guide</h1>
-        </div>
-        <button 
-          onClick={getCurrentLocation}
-          className={`p-2 -mr-2 hover:bg-white/20 rounded-full transition-colors ${currentUserLocation ? 'text-green-300' : ''}`}
-        >
-          <IconCurrentLocation size={24} />
-        </button>
-      </header>
+      <NavbarDemo />
 
       {/* Notification Toast */}
       {notification && (
-        <div className={`absolute top-16 left-4 right-4 z-50 p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-slide-down ${
-          notification.type === 'error' ? 'bg-red-500 text-white' :
-          notification.type === 'success' ? 'bg-green-500 text-white' :
-          'bg-slate-800 text-white'
-        }`}>
-          {notification.type === 'error' && <IconAlertCircle size={24} />}
-          {notification.type === 'success' && <IconCheck size={24} />}
-          {notification.type === 'info' && <IconNavigation size={24} className="animate-pulse" />}
+        <div
+          className={`absolute top-[76px] sm:top-[84px] left-3 right-3 sm:left-6 sm:right-6 z-50 mx-auto max-w-xl p-3.5 border bg-white shadow-md flex items-center gap-3 animate-slide-down ${
+            notification.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : notification.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          {notification.type === 'error' && <IconAlertCircle size={22} />}
+          {notification.type === 'success' && <IconCheck size={22} />}
+          {notification.type === 'info' && <IconNavigation size={22} className="animate-pulse" />}
           <span className="font-medium text-sm flex-1">{notification.message}</span>
         </div>
       )}
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:flex-row relative overflow-hidden">
+      <div className="flex-1 lg:mt-4 flex flex-col lg:flex-row relative overflow-hidden">
         
         {/* Desktop Sidebar */}
-        <div className="hidden lg:flex lg:w-[420px] bg-white flex-col shadow-2xl z-20">
-          {/* Header */}
-          <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 p-6 text-white">
-            <div className="flex items-center gap-4">
-              <div className="bg-gradient-to-br from-orange-500 to-amber-500 p-4 rounded-2xl shadow-lg">
-                <IconMapPin size={32} />
-              </div>
-              <div>
-                <h2 className="text-2xl font-black">Explore Odisha</h2>
-                <p className="text-slate-300 text-sm mt-1">Discover sacred temples & shrines</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="p-5 space-y-4 border-b border-slate-100 bg-slate-50">
-            <button
-              onClick={getCurrentLocation}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-2xl font-bold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all disabled:opacity-50"
-            >
-              <IconCurrentLocation size={22} className={isLoading ? 'animate-spin' : ''} />
-              {currentUserLocation ? 'Location Set ✓' : 'Get My Location'}
-            </button>
-
-            <div>
-              <p className="text-xs font-black text-slate-500 mb-3 uppercase tracking-widest">Select City</p>
-              <div className="grid grid-cols-3 gap-3">
-                {Object.keys(cityCoordinates).map((city) => (
-                  <button
-                    key={city}
-                    onClick={() => searchNearbyTemples(city)}
-                    className={`px-4 py-3.5 text-sm font-bold rounded-xl transition-all ${
-                      searchCity === city
-                        ? 'bg-gradient-to-r from-orange-600 to-amber-500 text-white shadow-lg transform scale-105'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 shadow border border-slate-200'
-                    }`}
-                  >
-                    {city}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Results */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-4 bg-gradient-to-r from-orange-50 to-amber-50 border-b sticky top-0 z-10">
-              <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                <IconSearch size={18} className="text-orange-600" />
-                Temples near {searchCity}
-              </p>
-            </div>
-            
-            {!isMapReady && (
-              <div className="flex flex-col items-center justify-center py-20">
-                <div className="relative w-20 h-20">
-                  <div className="absolute inset-0 rounded-full border-4 border-orange-100"></div>
-                  <div className="absolute inset-0 rounded-full border-4 border-orange-500 border-t-transparent animate-spin"></div>
-                  <div className="absolute inset-3 rounded-full border-4 border-amber-500 border-t-transparent animate-spin" style={{animationDirection: 'reverse', animationDuration: '0.8s'}}></div>
+        <div className="hidden lg:flex lg:w-lg ml-16 flex-col z-20">
+          <div className="h-full py-4 pl-4">
+            <div className="h-full bg-white border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="p-6 border-b border-slate-200 bg-white">
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 bg-amber-100 text-amber-900 flex items-center justify-center border border-amber-200">
+                    <IconMapPin size={26} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900">Explore Odisha</h2>
+                    <p className="text-sm text-slate-500">Temples and shrines near you</p>
+                  </div>
                 </div>
-                <p className="mt-6 text-slate-600 font-semibold">Loading map...</p>
               </div>
-            )}
-            
-            {/* Desktop nearby results - only visible on lg+ */}
-            <div className="hidden lg:block p-4">
-              <div 
-                id="nearby_search_results"
-                ref={nearbyContainerRef}
-                suppressHydrationWarning
-              />
+
+              {/* Controls */}
+              <div className="p-5 space-y-4 border-b border-slate-200/60 bg-white">
+                <button
+                  onClick={getCurrentLocation}
+                  disabled={isLoading}
+                  className="w-full flex items-center justify-center gap-3 px-5 py-4 bg-[#f4622d] text-white font-semibold shadow-sm hover:bg-[#fa4909ff] transition-colors disabled:opacity-50"
+                >
+                  <IconCurrentLocation size={20} className={isLoading ? 'animate-spin' : ''} />
+                  {currentUserLocation ? 'Location ready' : 'Use my location'}
+                </button>
+
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-[0.2em]">Choose a city</p>
+                  <div className="flex items-center gap-2 p-1.5 bg-slate-100 border border-slate-200">
+                    {Object.keys(cityCoordinates).map((city) => (
+                      <button
+                        key={city}
+                        onClick={() => searchNearbyTemples(city)}
+                        className={`flex-1 px-3 py-2.5 text-sm font-semibold border border-transparent transition-colors ${
+                          searchCity === city
+                            ? 'bg-white text-slate-900 border-slate-200'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                        }`}
+                      >
+                        {city}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Results */}
+              <div className="flex-1 overflow-y-auto bg-white">
+                <div className="p-4 bg-white border-b border-slate-200 sticky top-0 z-10">
+                  <p className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                    <IconSearch size={18} className="text-amber-600" />
+                    Temples near {searchCity}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Tap a place in the list to view details</p>
+                </div>
+
+                {!isMapReady && (
+                  <div className="flex flex-col items-center justify-center py-20">
+                    <div className="relative w-16 h-16">
+                      <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
+                      <div className="absolute inset-0 rounded-full border-4 border-amber-500 border-t-transparent animate-spin"></div>
+                    </div>
+                    <p className="mt-6 text-slate-600 font-medium">Preparing map…</p>
+                  </div>
+                )}
+
+                {/* Desktop nearby results - only visible on lg+ */}
+                <div className="hidden lg:block p-3">
+                  <div className="w-full"
+                    id="nearby_search_results"
+                    ref={nearbyContainerRef}
+                    suppressHydrationWarning
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Map Container */}
-        <div className="flex-1 relative">
-          <div 
-            ref={mapContainerRef} 
-            className="w-full h-full absolute inset-0"
-          />
+        <div className="flex-1 relative lg:mr-16">
+          <div className="absolute inset-0 lg:inset-4 overflow-hidden border border-slate-200 bg-white shadow-sm">
+            <div 
+              ref={mapContainerRef} 
+              className="w-full h-full absolute inset-0 bg-white"
+            />
+            <div className="pointer-events-none absolute inset-0 ring-1 ring-black/5" />
+          </div>
+          {/* Subtle overlay to match warm theme */}
+          <div className="pointer-events-none absolute inset-0 lg:inset-4 bg-gradient-to-b from-transparent via-transparent to-amber-100/25" />
         </div>
 
         {/* Mobile Bottom Sheet */}
-        <div 
+        <div
           className="lg:hidden fixed inset-x-0 bottom-0 z-40 transition-all duration-300 ease-out"
-          style={{ 
+          style={{
             transform: isBottomSheetOpen ? 'translateY(0)' : 'translateY(calc(100% - 72px))',
-            maxHeight: '65vh'
+            maxHeight: '72vh'
           }}
         >
-          <div className="bg-white rounded-t-[28px] shadow-2xl flex flex-col h-full border-t-4 border-orange-500">
+          <div className="bg-white shadow-[0_-10px_25px_rgba(2,6,23,0.12)] flex flex-col h-full border-t border-slate-200">
             {/* Handle */}
             <button
               onClick={() => setIsBottomSheetOpen(!isBottomSheetOpen)}
-              className="w-full py-4 flex flex-col items-center gap-2 border-b border-slate-100 active:bg-slate-50"
+              className="w-full py-4 flex flex-col items-center gap-2 border-b border-slate-200 active:bg-slate-50"
             >
-              <div className="w-14 h-1.5 bg-slate-300 rounded-full"></div>
-              <div className="flex items-center gap-2 text-slate-600">
-                {isBottomSheetOpen ? <IconChevronDown size={20} /> : <IconChevronUp size={20} />}
-                <span className="font-bold text-sm">
-                  {isBottomSheetOpen ? 'Swipe down to minimize' : 'Tap to explore temples'}
-                </span>
+              <div className="w-12 h-1.5 bg-slate-300"></div>
+              <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+                {isBottomSheetOpen ? <IconChevronDown size={18} /> : <IconChevronUp size={18} />}
+                {isBottomSheetOpen ? 'Swipe down' : 'Tap to browse'}
               </div>
             </button>
 
             {/* Content */}
             <div className="flex-1 overflow-hidden flex flex-col">
               {/* Controls */}
-              <div className="p-4 space-y-4 border-b border-slate-100 bg-slate-50">
+              <div className="p-4 space-y-4 border-b border-slate-200/70 bg-white">
                 <button
                   onClick={getCurrentLocation}
                   disabled={isLoading}
-                  className="w-full flex items-center justify-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-3 px-5 py-4 bg-[#f4622d] text-white font-semibold shadow-sm active:bg-[#fa4909ff] transition-colors disabled:opacity-50"
                 >
-                  <IconCurrentLocation size={22} className={isLoading ? 'animate-spin' : ''} />
-                  {currentUserLocation ? 'Location Set ✓' : 'Get My Location'}
+                  <IconCurrentLocation size={20} className={isLoading ? 'animate-spin' : ''} />
+                  {currentUserLocation ? 'Location ready' : 'Use my location'}
                 </button>
 
                 <div>
-                  <p className="text-xs font-black text-slate-500 mb-3 uppercase tracking-widest">Select City</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <p className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-[0.2em]">Choose a city</p>
+                  <div className="flex items-center gap-2 p-1.5 bg-slate-100 border border-slate-200">
                     {Object.keys(cityCoordinates).map((city) => (
                       <button
                         key={city}
                         onClick={() => searchNearbyTemples(city)}
-                        className={`px-3 py-3 text-sm font-bold rounded-xl transition-all ${
+                        className={`flex-1 px-3 py-2.5 text-sm font-semibold border border-transparent transition-colors ${
                           searchCity === city
-                            ? 'bg-gradient-to-r from-orange-600 to-amber-500 text-white shadow-lg'
-                            : 'bg-white text-slate-700 active:bg-slate-100 shadow border border-slate-200'
+                            ? 'bg-white text-slate-900 border-slate-200'
+                            : 'text-slate-600 active:bg-white'
                         }`}
                       >
                         {city}
@@ -578,20 +573,21 @@ const MapPage = () => {
 
               {/* Results - Mobile shows nearby search results */}
               <div className="flex-1 overflow-y-auto">
-                <div className="p-3 bg-gradient-to-r from-orange-50 to-amber-50 border-b sticky top-0 z-10">
-                  <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    <IconSearch size={18} className="text-orange-600" />
+                <div className="p-3 bg-white border-b border-slate-200 sticky top-0 z-10">
+                  <p className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                    <IconSearch size={18} className="text-amber-600" />
                     Near {searchCity}
                   </p>
+                  <p className="mt-1 text-xs text-slate-500">Tap a result to open details</p>
                 </div>
                 
                 {!isMapReady && (
                   <div className="flex flex-col items-center justify-center py-12">
-                    <div className="relative w-16 h-16">
-                      <div className="absolute inset-0 rounded-full border-4 border-orange-100"></div>
-                      <div className="absolute inset-0 rounded-full border-4 border-orange-500 border-t-transparent animate-spin"></div>
+                    <div className="relative w-14 h-14">
+                      <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
+                      <div className="absolute inset-0 rounded-full border-4 border-amber-500 border-t-transparent animate-spin"></div>
                     </div>
-                    <p className="mt-4 text-slate-600 text-sm font-semibold">Loading...</p>
+                    <p className="mt-4 text-slate-600 text-sm font-medium">Loading…</p>
                   </div>
                 )}
                 
@@ -610,22 +606,21 @@ const MapPage = () => {
 
       {/* Detail Modal */}
       {showDetailModal && locationDetails && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-end lg:items-center justify-center z-50 p-0 lg:p-6">
-          <div 
-            className="bg-white w-full lg:max-w-md lg:rounded-3xl rounded-t-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] lg:max-h-[80vh]"
-            style={{ animation: 'slideUp 0.3s ease-out' }}
+        <div className="fixed inset-0 bg-black/55 flex items-end lg:items-center justify-center z-50 p-0 lg:p-6">
+          <div
+            className="bg-white w-full lg:max-w-md shadow-[0_18px_45px_rgba(2,6,23,0.22)] overflow-hidden flex flex-col max-h-[85vh] lg:max-h-[80vh] border border-slate-200"
+            style={{ animation: 'slideUp 0.24s ease-out' }}
           >
             {/* Header */}
-            <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 p-6 text-white relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-orange-500/20 to-transparent"></div>
-              <div className="relative flex justify-between items-start">
-                <div className="flex items-start gap-4 flex-1">
-                  <div className="bg-gradient-to-br from-orange-500 to-amber-500 p-4 rounded-2xl shadow-lg">
-                    <span className="text-3xl">🕉️</span>
+            <div className="p-6 bg-slate-900 text-white">
+              <div className="flex justify-between items-start">
+                <div className="relative flex items-start gap-3 flex-1">
+                  <div className="h-11 w-11 bg-amber-200 text-slate-900 flex items-center justify-center border border-amber-300">
+                    <span className="text-2xl">🕉️</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h2 className="text-xl font-black mb-1 leading-tight">{locationDetails.name}</h2>
-                    <p className="text-slate-300 text-sm truncate">{locationDetails.city}, Odisha</p>
+                    <h2 className="text-lg font-semibold mb-1 leading-tight truncate">{locationDetails.name}</h2>
+                    <p className="text-slate-200/90 text-xs truncate">{locationDetails.city}, Odisha</p>
                   </div>
                 </div>
                 <button
@@ -633,9 +628,10 @@ const MapPage = () => {
                     setShowDetailModal(false);
                     setLocationDetails(null);
                   }}
-                  className="bg-white/10 hover:bg-white/20 p-2.5 rounded-full transition-all flex-shrink-0 ml-3"
+                  className="bg-white/10 hover:bg-white/20 p-2 transition-colors flex-shrink-0 ml-3"
+                  aria-label="Close detail"
                 >
-                  <IconX size={22} />
+                  <IconX size={20} />
                 </button>
               </div>
             </div>
@@ -643,13 +639,13 @@ const MapPage = () => {
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               {/* Address Card */}
-              <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl p-5 border border-slate-200">
+              <div className="p-5 border border-slate-200 bg-white">
                 <div className="flex items-start gap-3">
-                  <div className="bg-orange-100 p-2.5 rounded-xl text-orange-600">
-                    <IconMapPin size={22} />
+                  <div className="bg-amber-100 p-2.5 text-amber-800 border border-amber-200">
+                    <IconMapPin size={20} />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Address</p>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-[0.15em] mb-1">Address</p>
                     <p className="text-slate-800 font-medium leading-relaxed">
                       {locationDetails.address || `${locationDetails.city}, Odisha, India`}
                     </p>
@@ -659,12 +655,12 @@ const MapPage = () => {
 
               {/* eLoc Card */}
               {locationDetails.eLoc && (
-                <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-2xl p-5 border border-orange-200">
-                  <p className="text-xs font-black text-orange-600 uppercase tracking-widest mb-2">
+                <div className="p-5 border border-amber-200 bg-amber-50">
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-[0.18em] mb-2">
                     Digital Address (eLoc)
                   </p>
-                  <div className="bg-white rounded-xl p-4 border-2 border-orange-200 shadow-inner">
-                    <code className="font-mono text-2xl font-black text-slate-800 tracking-widest">
+                  <div className="bg-white p-4 border border-amber-200">
+                    <code className="font-mono text-xl font-semibold text-slate-900 tracking-widest">
                       {locationDetails.eLoc}
                     </code>
                   </div>
@@ -679,10 +675,10 @@ const MapPage = () => {
                     showRoute(locationDetails);
                   }}
                   disabled={isLoading || !currentUserLocation}
-                  className="w-full flex items-center justify-center gap-3 px-6 py-5 bg-gradient-to-r from-green-600 via-green-500 to-emerald-500 text-white rounded-2xl font-black text-lg shadow-xl hover:shadow-2xl transform hover:-translate-y-0.5 active:scale-95 transition-all disabled:opacity-50 disabled:transform-none"
+                  className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-[#f4622d] text-white font-semibold text-base shadow-sm hover:bg-[#fa4909ff] transition-colors disabled:opacity-50"
                 >
-                  <IconRoute size={26} />
-                  {currentUserLocation ? 'Get Directions' : 'Set Location First'}
+                  <IconRoute size={22} />
+                  {currentUserLocation ? 'Get directions' : 'Set location first'}
                 </button>
                 
                 {!currentUserLocation && (
@@ -711,6 +707,34 @@ const MapPage = () => {
         }
         .safe-area-top {
           padding-top: max(12px, env(safe-area-inset-top));
+        }
+
+        /* Make Mappls injected UI match our design */
+        #nearby_search_results {
+          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+          color: #0f172a;
+        }
+        #nearby_search_results input,
+        #nearby_search_results select {
+          width: 100%;
+          border-radius: 0px;
+          border: 1px solid rgba(148, 163, 184, 0.45);
+          padding: 10px 12px;
+          outline: none;
+          background: rgba(255,255,255,0.9);
+        }
+        #nearby_search_results button {
+          border-radius: 0px;
+          border: 1px solid rgba(148, 163, 184, 0.45);
+          padding: 10px 12px;
+          background: rgba(255,255,255,0.9);
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        #nearby_search_results button:hover {
+          background: rgba(241,245,249,0.95);
+        }
+        #nearby_search_results a {
+          color: #0f172a;
         }
         
         /* Custom scrollbar */

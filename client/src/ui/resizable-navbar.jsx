@@ -1,4 +1,4 @@
-"use client";;
+
 import { cn } from "../lib/utils";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import {
@@ -7,7 +7,7 @@ import {
   useScroll,
   useMotionValueEvent,
 } from "motion/react";
-
+import { Link, NavLink } from "react-router-dom";
 import React, { useRef, useState } from "react";
 
 
@@ -79,7 +79,8 @@ export const NavBody = ({
 export const NavItems = ({
   items,
   className,
-  onItemClick
+  onItemClick,
+  activeLink
 }) => {
   const [hovered, setHovered] = useState(null);
 
@@ -87,24 +88,58 @@ export const NavItems = ({
     <motion.div
       onMouseLeave={() => setHovered(null)}
       className={cn(
-        "absolute inset-0 hidden flex-1 flex-row items-center justify-center space-x-2 text-sm font-medium text-zinc-600 transition duration-100 hover:text-zinc-800 lg:flex lg:space-x-2",
+        "absolute inset-0 hidden flex-1 flex-row items-center justify-center space-x-2 text-sm font-medium text-white transition duration-100 lg:flex lg:space-x-2",
         className
       )}>
-      {items.map((item, idx) => (
-        <a
-          onMouseEnter={() => setHovered(idx)}
-          onClick={(e) => onItemClick?.(e, item)}
-          className="relative px-4 py-2 hover:text-[#f4622d] text-white cursor-pointer"
-          key={`link-${idx}`}
-          href={item.link}>
-          {hovered === idx && (
+      {items.map((item, idx) => {
+        const isActiveSection = !item.isRoute && activeLink && item.link === activeLink;
+
+        const commonClassName = cn(
+          "relative px-4 py-2 text-white transition whitespace-nowrap",
+          isActiveSection && "border-b-2 border-white font-semibold"
+        );
+
+        const hoveredBg =
+          hovered === idx ? (
             <motion.div
               layoutId="hovered"
-              className="absolute inset-0 h-full w-full rounded-full border-3 border-white bg-white " />
-          )}
-          <span className="relative z-20">{item.name}</span>
-        </a>
-      ))}
+              className="absolute inset-0 h-full w-full rounded-full border border-white bg-white"
+            />
+          ) : null;
+
+        if (item.isRoute) {
+          return (
+            <NavLink
+              key={item.link}
+              to={item.link}
+              onMouseEnter={() => setHovered(idx)}
+              onClick={(e) => onItemClick?.(e, item)}
+              className={({ isActive }) =>
+                cn(
+                  commonClassName,
+                  isActive && "border-b-2 border-white font-semibold "
+                )
+              }
+            >
+              {hoveredBg}
+              <span className={cn("relative z-10", hovered === idx && "text-[#f4622d]")}>{item.name}</span>
+            </NavLink>
+          );
+        }
+
+        return (
+          <button
+            key={item.link}
+            type="button"
+            onMouseEnter={() => setHovered(idx)}
+            onClick={(e) => onItemClick?.(e, item)}
+            className={cn(commonClassName, "cursor-pointer")}
+          >
+            {hoveredBg}
+            <span className={cn("relative z-10", hovered === idx && "text-[#f4622d]")}>{item.name}</span>
+          </button>
+        );
+      })}
     </motion.div>
   );
 };
@@ -191,9 +226,9 @@ export const MobileNavToggle = ({
 
 export const NavbarLogo = () => {
   return (
-    <a
-      href="#"
-      className="relative z-20 mr-4 flex items-center space-x-2 px-2 py-1 text-sm font-normal text-black">
+    <Link
+      to="/"
+      className="relative z-20 mr-4 flex items-center space-x-2 px-2 py-1 text-sm font-normal">
       <img
         src="/unnamed-removebg-preview.png"
         alt="Patha Gamini Logo"
@@ -201,7 +236,7 @@ export const NavbarLogo = () => {
         height={40}
         className="object-contain" />
       <span className="font-semibold text-white startup-name">Patha Gamini</span>
-    </a>
+    </Link>
   );
 };
 
