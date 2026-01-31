@@ -187,7 +187,8 @@ new window.mappls.Marker({
   position: [lat, lng],
   map: map,
   title: 'Custom Location',
-  icon: 'custom-icon-url.png'
+  icon: 'custom-icon-url.png',
+  clustersOptions: {"color": "blue","bgcolor":"red"},
 });
 
 // Add popup/infowindow
