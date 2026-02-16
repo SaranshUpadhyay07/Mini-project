@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { IconMail, IconLock, IconUser, IconPhone, IconBrandGoogle } from '@tabler/icons-react';
 
 const SignUp = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { signup, signInWithGoogle } = useAuth();
+
+  const redirectTo = location.state?.from?.pathname || '/';
   
   const [formData, setFormData] = useState({
     name: '',
@@ -49,8 +52,10 @@ const SignUp = () => {
     setLoading(false);
 
     if (result.success) {
-      alert('Account created successfully!');
-      navigate('/map'); // Redirect to map page after signup
+      navigate('/profile?setup=1', {
+        replace: true,
+        state: { from: location.state?.from || { pathname: redirectTo } }
+      });
     } else {
       setError(result.error);
     }
@@ -62,7 +67,7 @@ const SignUp = () => {
     setLoading(false);
 
     if (result.success) {
-      navigate('/map');
+      navigate(redirectTo, { replace: true });
     } else {
       setError(result.error);
     }

@@ -1,4 +1,3 @@
-import { useAuth } from "../context/AuthContext";
 import { NavbarDemo } from "../components/Navbar";
 
 const Home = () => {

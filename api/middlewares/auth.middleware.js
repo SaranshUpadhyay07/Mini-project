@@ -6,6 +6,13 @@ import User from '../models/user.model.js';
  */
 const authenticateUser = async (req, res, next) => {
   try {
+    if (!admin) {
+      return res.status(500).json({
+        success: false,
+        message: 'Firebase Admin is not initialized on server.',
+      });
+    }
+
     // Get token from Authorization header
     const authHeader = req.headers.authorization;
     
@@ -21,11 +28,22 @@ const authenticateUser = async (req, res, next) => {
     // Verify token with Firebase Admin
     const decodedToken = await admin.auth().verifyIdToken(token);
     
-    // Find or create user in MongoDB
+    // Find user by Firebase UID first
     let user = await User.findOne({ firebaseUid: decodedToken.uid });
-    
+
+    if (!user && decodedToken.email) {
+      // Fallback: find by same email and relink UID
+      user = await User.findOne({ email: decodedToken.email });
+      if (user) {
+        user.firebaseUid = decodedToken.uid;
+        user.name = user.name || decodedToken.name || decodedToken.email.split('@')[0];
+        user.phone = user.phone || decodedToken.phone_number || '';
+        await user.save();
+      }
+    }
+
     if (!user) {
-      // Create new user if doesn't exist
+      // Create new user if doesn't exist by UID or email
       user = await User.create({
         firebaseUid: decodedToken.uid,
         email: decodedToken.email,
