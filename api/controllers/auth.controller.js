@@ -53,9 +53,23 @@ const syncUser = async (req, res) => {
  */
 const getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id)
-      .populate('familyId')
-      .populate('trips');
+    let user = null;
+
+    if (req.user?._id) {
+      user = await User.findById(req.user._id);
+    }
+
+    // Fallback lookup by email to satisfy same-email profile fetch behavior
+    if (!user && req.firebaseUser?.email) {
+      user = await User.findOne({ email: req.firebaseUser.email });
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile not found',
+      });
+    }
 
     res.status(200).json({
       success: true,

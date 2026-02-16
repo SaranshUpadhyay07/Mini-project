@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { IconMail, IconLock, IconBrandGoogle } from '@tabler/icons-react';
 
 const SignIn = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, signInWithGoogle } = useAuth();
+
+  const redirectTo = location.state?.from?.pathname || '/';
   
   const [formData, setFormData] = useState({
     email: '',
@@ -30,7 +33,7 @@ const SignIn = () => {
     setLoading(false);
 
     if (result.success) {
-      navigate('/map'); // Redirect after successful login
+      navigate(redirectTo, { replace: true });
     } else {
       setError(result.error);
     }
@@ -42,7 +45,7 @@ const SignIn = () => {
     setLoading(false);
 
     if (result.success) {
-      navigate('/map');
+      navigate(redirectTo, { replace: true });
     } else {
       setError(result.error);
     }

@@ -23,6 +23,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import MapIcon from "@mui/icons-material/Map";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 
 export function NavbarDemo() {
   const navigate = useNavigate();
@@ -30,9 +31,16 @@ export function NavbarDemo() {
   const { currentUser, logout } = useAuth();
 
   const isHomePage = location.pathname === "/";
+  const isProtectedPath = useMemo(() => {
+    // Keep in sync with protected routes in App.jsx
+    return ["/map", "/profile", "/itineraryai"].includes(location.pathname);
+  }, [location.pathname]);
+
   const handleLogout = async () => {
     const result = await logout();
-    if (result?.success) navigate("/signin");
+    // Only redirect to Sign In if the user is currently on a protected route.
+    // Otherwise, keep them on the current public page.
+    if (result?.success && isProtectedPath) navigate("/signin", { replace: true });
   };
 
   const scrollToSection = (id) => {
@@ -90,7 +98,10 @@ export function NavbarDemo() {
   ];
 
   const authActions = currentUser
-    ? [{ icon: <LogoutIcon />, name: "Logout", action: handleLogout }]
+    ? [
+        { icon: <AccountCircleIcon />, name: "Profile", action: () => navigate("/profile") },
+        { icon: <LogoutIcon />, name: "Logout", action: handleLogout },
+      ]
     : [
         { icon: <LoginIcon />, name: "Sign In", action: () => navigate("/signin") },
         { icon: <LoginIcon />, name: "Sign Up", action: () => navigate("/signup") },
@@ -116,12 +127,23 @@ export function NavbarDemo() {
 
           <div className="flex gap-3">
             {currentUser ? (
-              <button
-                onClick={handleLogout}
-                className="px-6 py-2 bg-red-600 text-white font-bold rounded-xl"
-              >
-                Logout
-              </button>
+              <>
+                <button
+                  onClick={() => navigate("/profile")}
+                  className="px-3 py-2 border-2 border-white text-white rounded-xl"
+                  aria-label="Profile"
+                  title="Profile"
+                >
+                  <AccountCircleIcon fontSize="small" />
+                </button>
+
+                <button
+                  onClick={handleLogout}
+                  className="px-6 py-2 bg-red-600 text-white font-bold rounded-xl"
+                >
+                  Logout
+                </button>
+              </>
             ) : (
               <>
                 <button
