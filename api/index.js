@@ -1,8 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
 
 import connectDB from './config/db.config.js';
+import { setupSocket } from './socketHandler.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import placesRoutes from './routes/places.routes.js';
@@ -80,11 +82,15 @@ app.use((err, req, res, next) => {
 });
 
 // --------------------
-// Start Server
+// Start Server with Socket.io
 // --------------------
-app.listen(PORT, () => {
+const httpServer = createServer(app);
+const io = setupSocket(httpServer);
+
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📍 API: http://localhost:${PORT}`);
+  console.log(`⚡ Socket.io: Ready for real-time connections`);
 });
 
 export default app;

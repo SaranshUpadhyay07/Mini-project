@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import FamilyMap from './FamilyMap';
+import FindMyDevice from './FindMyDevice';
+import { initiateSocket, disconnectSocket, sendLocationUpdate } from '../services/socket';
 
 const FamilyTracker = () => {
   const { currentUser } = useAuth();
@@ -16,19 +17,204 @@ const FamilyTracker = () => {
   const [locationSharing, setLocationSharing] = useState(false);
   const [showLostMemberDialog, setShowLostMemberDialog] = useState(false);
   const [selectedLostMember, setSelectedLostMember] = useState(null);
+  const [showLostMembersView, setShowLostMembersView] = useState(false);
+  
+  // Real-time tracking refs
+  const watchIdRef = useRef(null);
+  const headingRef = useRef(0);
+  const lastLocationRef = useRef(null);
 
+  // 1. Fetch family ONCE on mount
   useEffect(() => {
     fetchFamily();
-    
-    // Update location every 30 seconds if sharing is enabled
-    const locationInterval = setInterval(() => {
-      if (locationSharing && navigator.geolocation) {
-        updateLocation();
-      }
-    }, 30000);
+  }, []); // Empty deps = runs once
 
-    return () => clearInterval(locationInterval);
-  }, [locationSharing]);
+  // 2. Initialize Socket ONLY when family first loads
+  useEffect(() => {
+    if (family && currentUser) {
+      console.log('🔌 Initializing Socket for family:', family.familyId);
+      initiateSocket(family.familyId, currentUser.uid);
+      
+      return () => {
+        console.log('🔌 Disconnecting Socket on unmount');
+        disconnectSocket();
+      };
+    }
+  }, [family?.familyId, currentUser?.uid]); // Only re-run if IDs change
+
+  // 3. Real-time location tracking with device compass (separate concern)
+  useEffect(() => {
+    if (!locationSharing || !family?.familyId || !currentUser?.uid) {
+      // Stop watching if disabled
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+        console.log('🛑 Stopped real-time location tracking');
+      }
+      return;
+    }
+
+    console.log('🔄 Starting real-time location tracking with compass...');
+
+    // Setup device orientation listener for compass heading
+    const handleOrientation = (event) => {
+      if (event.alpha !== null) {
+        // alpha: 0-360 degrees, where 0/360 is North
+        headingRef.current = event.alpha;
+      }
+      // Also try webkitCompassHeading for iOS
+      if (event.webkitCompassHeading !== undefined) {
+        headingRef.current = event.webkitCompassHeading;
+      }
+    };
+
+    // Request device orientation permission (iOS 13+)
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission()
+        .then(permissionState => {
+          if (permissionState === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation, true);
+            console.log('✅ Compass access granted');
+          }
+        })
+        .catch(console.error);
+    } else {
+      // Non-iOS or older iOS
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+
+    // Calculate heading from movement (fallback if compass not available)
+    const calculateHeadingFromMovement = (lat1, lng1, lat2, lng2) => {
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const lat1Rad = lat1 * Math.PI / 180;
+      const lat2Rad = lat2 * Math.PI / 180;
+      
+      const y = Math.sin(dLng) * Math.cos(lat2Rad);
+      const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+                Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
+      
+      let heading = Math.atan2(y, x) * 180 / Math.PI;
+      heading = (heading + 360) % 360; // Normalize to 0-360
+      return heading;
+    };
+
+    // Real-time geolocation watching
+    const handlePositionUpdate = async (position) => {
+      const { latitude, longitude, accuracy, speed } = position.coords;
+      
+      // Get heading from device compass or calculate from movement
+      let heading = headingRef.current;
+      
+      // If compass not available and we have previous location, calculate from movement
+      if (heading === 0 && lastLocationRef.current) {
+        heading = calculateHeadingFromMovement(
+          lastLocationRef.current.lat,
+          lastLocationRef.current.lng,
+          latitude,
+          longitude
+        );
+      }
+      
+      // Use position.coords.heading as fallback (GPS-based heading)
+      if (heading === 0 && position.coords.heading !== null) {
+        heading = position.coords.heading;
+      }
+
+      console.log('📍 Real-time location update:');
+      console.log('   Lat:', latitude, 'Lng:', longitude);
+      console.log('   Heading:', heading, '° (0=N, 90=E, 180=S, 270=W)');
+      console.log('   Speed:', speed, 'm/s');
+      console.log('   Accuracy:', accuracy, 'meters');
+
+      try {
+        // 1. Save to MongoDB via HTTP
+        const token = await currentUser.getIdToken();
+        const response = await fetch('http://localhost:5000/api/family/location/update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ latitude, longitude, accuracy }),
+        });
+
+        if (response.ok) {
+          console.log('✅ Location saved to MongoDB');
+        }
+
+        // 2. Broadcast via Socket.io with heading
+        const socketData = {
+          familyId: family.familyId,
+          userId: currentUser.uid, // Firebase UID
+          lat: latitude,
+          lng: longitude,
+          heading: heading, // Device compass or calculated heading
+          speed: speed || 0,
+          accuracy: accuracy || 0,
+          timestamp: Date.now()
+        };
+        
+        console.log('🔌 Broadcasting to Socket.io:', socketData);
+        sendLocationUpdate(socketData);
+        
+        // Store for heading calculation
+        lastLocationRef.current = { lat: latitude, lng: longitude };
+
+      } catch (error) {
+        console.error('Error updating location:', error);
+      }
+    };
+
+    // Start continuous watching
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      handlePositionUpdate,
+      (error) => {
+        console.error('❌ Geolocation watch error:', error.message);
+        // Try to restart watching
+        if (watchIdRef.current !== null) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+          setTimeout(() => {
+            if (locationSharing) {
+              watchIdRef.current = navigator.geolocation.watchPosition(
+                handlePositionUpdate,
+                console.error,
+                {
+                  enableHighAccuracy: true,
+                  timeout: 10000,
+                  maximumAge: 0
+                }
+              );
+            }
+          }, 3000);
+        }
+      },
+      {
+        enableHighAccuracy: true, // Use GPS
+        timeout: 10000,
+        maximumAge: 0, // Always get fresh location
+        // High accuracy mode triggers updates on every movement
+      }
+    );
+
+    console.log('✅ Real-time tracking started (watch ID:', watchIdRef.current, ')');
+
+    return () => {
+      console.log('🛑 Stopping real-time tracking...');
+      
+      // Stop watching location
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      
+      // Remove compass listener
+      window.removeEventListener('deviceorientation', handleOrientation, true);
+      
+      // Clear refs
+      headingRef.current = 0;
+      lastLocationRef.current = null;
+    };
+  }, [locationSharing, family?.familyId, currentUser?.uid]); // Stable dependencies
 
   const fetchFamily = async () => {
     try {
@@ -118,6 +304,13 @@ const FamilyTracker = () => {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
+          const locationData = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          };
+
+          // HTTP call to persist in MongoDB
           const token = await currentUser.getIdToken();
           await fetch('http://localhost:5000/api/family/location/update', {
             method: 'POST',
@@ -125,12 +318,22 @@ const FamilyTracker = () => {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-            }),
+            body: JSON.stringify(locationData),
           });
+          
+          // Socket.io emit for real-time broadcast to family members
+          if (family && currentUser) {
+            sendLocationUpdate({
+              familyId: family.familyId,
+              userId: currentUser.uid,
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              heading: position.coords.heading || 0,
+              speed: position.coords.speed || 0,
+              accuracy: position.coords.accuracy,
+              timestamp: Date.now()
+            });
+          }
           
           // Refresh family data to get updated locations
           fetchFamily();
@@ -140,7 +343,8 @@ const FamilyTracker = () => {
       },
       (error) => {
         console.error('Error getting location:', error);
-      }
+      },
+      { enableHighAccuracy: true } // Added for better GPS accuracy
     );
   };
 
@@ -169,6 +373,30 @@ const FamilyTracker = () => {
   };
 
   const showMemberLocation = (member) => {
+    console.log('🗺️ Navigate clicked for member:', member.userId.name);
+    console.log('   Firebase UID:', member.userId.firebaseUid);
+    console.log('   MongoDB _id:', member.userId._id);
+    console.log('   Is sharing location:', member.userId.isSharingLocation);
+    console.log('   Has location:', member.userId.currentLocation);
+    console.log('   Coordinates:', member.userId.currentLocation?.coordinates);
+    
+    if (!member.userId.isSharingLocation) {
+      alert(`${member.userId.name} is not currently sharing their location.`);
+      return;
+    }
+    
+    if (!member.userId.currentLocation || !member.userId.currentLocation.coordinates) {
+      alert(`Location data not available for ${member.userId.name}. They may need to enable location sharing.`);
+      return;
+    }
+    
+    const [lng, lat] = member.userId.currentLocation.coordinates;
+    if (!lat || !lng) {
+      alert(`Invalid location coordinates for ${member.userId.name}.`);
+      return;
+    }
+    
+    console.log(`✅ Opening map to track ${member.userId.name} at [${lat}, ${lng}]`);
     setSelectedMember(member);
     setShowMap(true);
   };
@@ -191,6 +419,29 @@ const FamilyTracker = () => {
       
       alert('Lost member reported successfully. All family members have been notified.');
       setShowLostMemberDialog(false);
+      fetchFamily();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const resolveLostMember = async (lostMemberId) => {
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch('http://localhost:5000/api/family/member/lost/resolve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ lostMemberId }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.message);
+      
+      alert('Lost member marked as found!');
       fetchFamily();
     } catch (err) {
       setError(err.message);
@@ -308,8 +559,10 @@ const FamilyTracker = () => {
   return (
     <div className="max-w-4xl mx-auto p-6">
       {showMap && selectedMember ? (
-        <FamilyMap
+        <FindMyDevice
           member={selectedMember}
+          currentUser={currentUser}
+          familyId={family.familyId}
           onClose={() => {
             setShowMap(false);
             setSelectedMember(null);
@@ -353,8 +606,16 @@ const FamilyTracker = () => {
             )}
 
             {family.lostMembers?.filter(lm => !lm.isResolved).length > 0 && (
-              <div className="bg-red-100 border border-red-300 rounded p-3 mb-4">
-                <p className="text-red-800 font-semibold">⚠️ {family.lostMembers.filter(lm => !lm.isResolved).length} Member(s) Reported Lost</p>
+              <div 
+                className="bg-red-100 border border-red-300 rounded p-3 mb-4 cursor-pointer hover:bg-red-200 transition"
+                onClick={() => setShowLostMembersView(true)}
+              >
+                <div className="flex justify-between items-center">
+                  <p className="text-red-800 font-semibold">⚠️ {family.lostMembers.filter(lm => !lm.isResolved).length} Member(s) Reported Lost</p>
+                  {isAdmin && (
+                    <p className="text-red-600 text-sm">Click to manage →</p>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -406,13 +667,14 @@ const FamilyTracker = () => {
                       {hasLocation && !isCurrentUser && (
                         <button
                           onClick={() => showMemberLocation(member)}
-                          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
-                          title="Show location and navigate"
+                          className="px-6 py-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 flex items-center gap-2 font-medium shadow-md transition-all hover:shadow-lg"
+                          title="Locate device"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
-                          Navigate
+                          Locate
                         </button>
                       )}
 
@@ -422,10 +684,10 @@ const FamilyTracker = () => {
                             setSelectedLostMember(member.userId._id);
                             setShowLostMemberDialog(true);
                           }}
-                          className="px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                          className="px-4 py-2.5 bg-red-50 text-red-600 rounded-full hover:bg-red-100 font-medium transition-all"
                           title="Report as lost"
                         >
-                          🚨
+                          🚨 Report
                         </button>
                       )}
                     </div>
@@ -434,6 +696,89 @@ const FamilyTracker = () => {
               })}
             </div>
           </div>
+
+          {/* Lost Members View Dialog */}
+          {showLostMembersView && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-2xl font-bold text-red-700">⚠️ Lost Members</h3>
+                  <button
+                    onClick={() => setShowLostMembersView(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {family.lostMembers
+                    ?.filter(lm => !lm.isResolved)
+                    .map((lostMember) => {
+                      const member = family.members.find(m => m.userId._id === lostMember.userId);
+                      const reporter = family.members.find(m => m.userId._id === lostMember.reportedBy);
+                      
+                      return (
+                        <div key={lostMember._id} className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-2">
+                                <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center text-white font-bold text-xl">
+                                  {member?.userId.name?.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <h4 className="font-bold text-lg">{member?.userId.name}</h4>
+                                  <p className="text-sm text-gray-600">Member ID: {member?.memberId}</p>
+                                </div>
+                              </div>
+                              
+                              <div className="ml-15 space-y-1 text-sm">
+                                <p className="text-gray-700">
+                                  <span className="font-semibold">Reported by:</span> {reporter?.userId.name}
+                                </p>
+                                <p className="text-gray-700">
+                                  <span className="font-semibold">Reported at:</span>{' '}
+                                  {new Date(lostMember.reportedAt).toLocaleString()}
+                                </p>
+                                {lostMember.lastKnownLocation?.coordinates?.[0] && lostMember.lastKnownLocation?.coordinates?.[1] && (
+                                  <p className="text-gray-700">
+                                    <span className="font-semibold">Last known location:</span>{' '}
+                                    Lat: {lostMember.lastKnownLocation.coordinates[1].toFixed(6)}, 
+                                    Lng: {lostMember.lastKnownLocation.coordinates[0].toFixed(6)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            {isAdmin && (
+                              <button
+                                onClick={() => resolveLostMember(lostMember._id)}
+                                className="ml-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-semibold whitespace-nowrap"
+                              >
+                                ✓ Mark as Found
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {family.lostMembers?.filter(lm => !lm.isResolved).length === 0 && (
+                  <p className="text-center text-gray-500 py-8">No lost members at the moment.</p>
+                )}
+
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => setShowLostMembersView(false)}
+                    className="px-6 py-2 bg-gray-300 rounded hover:bg-gray-400 font-semibold"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Lost Member Dialog */}
           {showLostMemberDialog && (

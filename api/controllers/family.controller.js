@@ -138,8 +138,8 @@ export const getFamily = async (req, res) => {
     }
 
     const family = await Family.findById(req.user.familyId)
-      .populate("members.userId", "name email phone isSharingLocation currentLocation lastLocationUpdate")
-      .populate("adminUserId", "name email")
+      .populate("members.userId", "firebaseUid name email phone isSharingLocation currentLocation lastLocationUpdate")
+      .populate("adminUserId", "firebaseUid name email")
       .populate("activeTripId");
 
     if (!family) {
@@ -175,8 +175,8 @@ export const getAllFamilies = async (req, res) => {
     }
 
     const families = await Family.find()
-      .populate("adminUserId", "name email")
-      .populate("members.userId", "name currentLocation lastLocationUpdate isSharingLocation")
+      .populate("adminUserId", "firebaseUid name email")
+      .populate("members.userId", "firebaseUid name currentLocation lastLocationUpdate isSharingLocation")
       .select("-familyCode"); // Don't expose family codes to admin
 
     // Calculate member counts and prepare data for map view
@@ -240,7 +240,7 @@ export const updateMemberLocation = async (req, res) => {
         lastUpdatedAt: new Date(),
         isSharing: req.user.isSharingLocation,
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
     // Check for distance alerts

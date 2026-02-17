@@ -1,377 +1,396 @@
 import { useEffect, useRef, useState } from 'react';
+import { subscribeToLocationUpdates } from '../services/socket';
 
-const FamilyMap = ({ member, onClose }) => {
+/**
+ * FamilyMap - Real-time Tracking with WebSockets
+ * Architecture: Zero re-renders on location updates
+ * - Map instance stored in useRef (persistent)
+ * - Socket events directly call Mappls trackingCall()
+ * - Only UI overlays (distance/ETA) use useState
+ */
+
+const FamilyMap = ({ member, currentUser, familyId, onClose }) => {
+  // REFS - Persistent, never cause re-renders
   const mapContainerRef = useRef(null);
   const mapInstance = useRef(null);
-  const directionInstance = useRef(null);
-  const [isTracking, setIsTracking] = useState(false);
-  const [currentPosition, setCurrentPosition] = useState(null);
-  const [error, setError] = useState('');
+  const trackingPluginRef = useRef(null);
+  const isMapInitialized = useRef(false);
+  const unsubscribeRef = useRef(null);
+
+  // STATE - Only for UI overlays
+  const [metrics, setMetrics] = useState({ distance: null, eta: null });
+  const [status, setStatus] = useState('Connecting to Live Server...');
+
   const MAPPLS_KEY = import.meta.env.VITE_MAPPLS_API_KEY;
+  const MAP_DIV_ID = 'mappls-realtime-map';
 
+  // ═══════════════════════════════════════════════════════════════
+  // ONE-TIME INITIALIZATION - Socket-based, no polling
+  // ═══════════════════════════════════════════════════════════════
+  
   useEffect(() => {
-    loadMapAndNavigate();
+    let isMounted = true;
 
-    return () => {
-      // Cleanup
-      if (mapInstance.current) {
-        mapInstance.current.remove();
-        mapInstance.current = null;
+    const init = async () => {
+      console.log('🎬 Initializing Real-time Map...');
+      
+      try {
+        // 1. Load Mappls Scripts
+        if (!window.mappls) {
+          setStatus('Loading Map SDK...');
+          await loadMapplsScript();
+          await loadTrackingScript();
+        }
+
+        // 2. Initialize Map
+        if (!isMapInitialized.current && isMounted) {
+          await initializeMap();
+        }
+
+        // 3. Subscribe to Socket Updates
+        setupSocketListener();
+
+      } catch (error) {
+        console.error('Initialization error:', error);
+        setStatus('Error: ' + error.message);
       }
     };
-  }, []);
 
-  const loadMapAndNavigate = () => {
-    // Check if Mappls SDK is already loaded
-    if (window.mappls && window.mappls.Map) {
-      console.log('Mappls SDK already loaded');
-      loadDirectionPlugin();
-    } else {
-      // Load Mappls SDK
+    init();
+
+    return () => {
+      isMounted = false;
+      cleanup();
+    };
+  }, []); // EMPTY DEPS = Runs ONCE
+
+  // ═══════════════════════════════════════════════════════════════
+  // HELPER FUNCTIONS
+  // ═══════════════════════════════════════════════════════════════
+
+  const loadMapplsScript = () => {
+    return new Promise((resolve, reject) => {
+      if (window.mappls?.Map) {
+        resolve();
+        return;
+      }
       const script = document.createElement('script');
       script.src = `https://sdk.mappls.com/map/sdk/web?v=3.0&access_token=${MAPPLS_KEY}`;
       script.async = true;
       script.onload = () => {
-        console.log('Mappls SDK loaded');
-        loadDirectionPlugin();
+        setTimeout(resolve, 500); // Wait for globals to be ready
       };
-      script.onerror = () => {
-        setError('Failed to load Mappls SDK');
-      };
+      script.onerror = () => reject(new Error('Failed to load Mappls SDK'));
       document.head.appendChild(script);
-    }
+    });
   };
 
-  const loadDirectionPlugin = () => {
-    // Check if direction plugin is already loaded
-    if (window.mappls && window.mappls.direction) {
-      console.log('Direction plugin already loaded');
-      setTimeout(() => initMap(), 500);
-      return;
+  const loadTrackingScript = () => {
+    return new Promise((resolve, reject) => {
+      if (window.mappls?.tracking) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = `https://sdk.mappls.com/map/sdk/plugins?v=3.0&libraries=tracking&access_token=${MAPPLS_KEY}`;
+      script.async = true;
+      script.onload = () => {
+        setTimeout(resolve, 500);
+      };
+      script.onerror = () => reject(new Error('Failed to load Tracking Plugin'));
+      document.head.appendChild(script);
+    });
+  };
+
+  const cleanup = () => {
+    console.log('🧹 Cleaning up Real-time Map...');
+
+    // Unsubscribe from socket events
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
     }
 
-    // Check if script already exists
-    if (document.querySelector('script[src*="sdk.mappls.com/map/sdk/plugins"]')) {
-      console.log('Direction plugin script exists, waiting...');
-      const checkPlugin = setInterval(() => {
-        if (window.mappls && window.mappls.direction) {
-          clearInterval(checkPlugin);
-          setTimeout(() => initMap(), 500);
+    // Remove tracking plugin (safely)
+    if (trackingPluginRef.current) {
+      try {
+        // Don't call remove() - it has internal bugs
+        // Just clear the reference
+        trackingPluginRef.current = null;
+      } catch (e) {
+        console.warn('Tracking cleanup warning:', e);
+      }
+    }
+
+    // Remove map
+    if (mapInstance.current) {
+      try {
+        if (mapInstance.current.remove) {
+          mapInstance.current.remove();
         }
-      }, 200);
-      setTimeout(() => clearInterval(checkPlugin), 10000);
-      return;
+      } catch (e) {
+        console.warn('Map cleanup warning:', e);
+      }
+      mapInstance.current = null;
     }
 
-    // Load direction plugin
-    const pluginScript = document.createElement('script');
-    pluginScript.src = `https://sdk.mappls.com/map/sdk/plugins?v=3.0&libraries=direction&access_token=${MAPPLS_KEY}`;
-    pluginScript.async = true;
-    pluginScript.onload = () => {
-      console.log('Direction plugin loaded');
-      setTimeout(() => initMap(), 500);
-    };
-    pluginScript.onerror = () => {
-      setError('Failed to load Direction plugin');
-    };
-    document.head.appendChild(pluginScript);
+    isMapInitialized.current = false;
   };
 
-  const initMap = () => {
-    if (!window.mappls || !window.mappls.Map) {
-      console.error('Mappls SDK not available');
-      setError('Map SDK not loaded');
-      return;
-    }
+  // ═══════════════════════════════════════════════════════════════
+  // MAP INITIALIZATION WITH SOCKET
+  // ═══════════════════════════════════════════════════════════════
 
-    if (!mapContainerRef.current) {
-      console.error('Map container not available');
-      return;
+  const initializeMap = async () => {
+    if (!mapContainerRef.current || !window.mappls?.Map) {
+      throw new Error('Map prerequisites not met');
     }
 
     try {
-      // Get member's location
-      const memberLocation = member.userId.currentLocation;
-      if (!memberLocation || !memberLocation.coordinates) {
-        setError('Member location not available');
+      console.log('🗺️ Initializing map with member data:', member.userId);
+      
+      // Get Member's Position (The one we're tracking - MOVING marker)
+      const memberCoords = member?.userId?.currentLocation?.coordinates;
+      if (!memberCoords || memberCoords.length !== 2) {
+        throw new Error(`Member location not available. Location data: ${JSON.stringify(member?.userId?.currentLocation)}`);
+      }
+      const [memberLng, memberLat] = memberCoords;
+      
+      console.log(`📍 Member location: Lat=${memberLat}, Lng=${memberLng}`);
+      console.log(`👤 Member Firebase UID: ${member.userId.firebaseUid}`);
+      console.log(`📱 Member is sharing location: ${member.userId.isSharingLocation}`);
+
+      // Get Your Position (Observer - STATIC destination)
+      // Get current position from browser instead of props
+      let myLat = 20.2961; // Default to Bhubaneswar
+      let myLng = 85.8245;
+      
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 0
+            });
+          });
+          myLat = position.coords.latitude;
+          myLng = position.coords.longitude;
+          console.log(`📍 Your location: Lat=${myLat}, Lng=${myLng}`);
+        } catch (geoError) {
+          console.warn('⚠️ Could not get your location, using default:', geoError.message);
+        }
+      }
+
+      console.log('🗺️ Creating map...');
+      console.log(`   Member (Moving/Red): [${memberLat}, ${memberLng}]`);
+      console.log(`   You (Static/Blue): [${myLat}, ${myLng}]`);
+
+      // Assign ID to div
+      mapContainerRef.current.id = MAP_DIV_ID;
+
+      // Create Map Instance
+      mapInstance.current = new window.mappls.Map(MAP_DIV_ID, {
+        center: [memberLat, memberLng],
+        zoom: 14,
+        zoomControl: true,
+      });
+
+      // Wait for map to load using Promise
+      await new Promise((resolve, reject) => {
+        mapInstance.current.addListener('load', () => {
+          isMapInitialized.current = true;
+          console.log('✅ Map loaded successfully');
+          setStatus('Initializing tracking...');
+
+          // Initialize Tracking Plugin
+          // START = Member (moving source)
+          // END = You (static destination)
+          const trackingOptions = {
+            map: mapInstance.current,
+            start: {
+              geoposition: `${memberLat},${memberLng}`,
+              start_icon: {
+                url: 'https://apis.mappls.com/map_v3/2.png', // Red marker for member
+                width: 40,
+                height: 40,
+              },
+            },
+            end: {
+              geoposition: `${myLat},${myLng}`,
+              end_icon: {
+                url: 'https://apis.mappls.com/map_v3/1.png', // Blue marker for you
+                width: 35,
+                height: 35,
+              },
+            },
+            resource: 'route_eta',
+            profile: 'driving',
+            fitBounds: true,
+            connector: true,
+            strokeWidth: 6,
+            routeColor: '#3B82F6',
+            ccpIconWidth: 50,
+          };
+
+          window.mappls.tracking(trackingOptions, (data) => {
+            if (!data || data.error) {
+              console.error('❌ Tracking error:', data?.error);
+              setStatus('Error initializing tracking');
+              reject(new Error(data?.error || 'Tracking failed'));
+              return;
+            }
+
+            trackingPluginRef.current = data;
+            console.log('✅ Tracking plugin initialized');
+
+            // Set initial metrics
+            if (data.dis && data.dur) {
+              setMetrics({
+                distance: (data.dis / 1000).toFixed(2) + ' km',
+                eta: Math.ceil(data.dur / 60) + ' mins',
+              });
+            }
+
+            setStatus('🟢 Live Tracking Active');
+            resolve();
+          });
+        });
+      });
+
+    } catch (error) {
+      console.error('Map initialization error:', error);
+      throw error;
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🚀 THE SWIGGY MAGIC 🚀 - Socket → Mappls API
+  // ═══════════════════════════════════════════════════════════════
+
+  const setupSocketListener = () => {
+    const unsubscribe = subscribeToLocationUpdates((data) => {
+      console.log('📍 Received location update:', data);
+      console.log('🔍 Comparing with member firebaseUid:', member.userId.firebaseUid);
+      
+      // Only process updates for the member we're tracking
+      // Compare using Firebase UID (not MongoDB _id)
+      if (data.userId !== member.userId.firebaseUid) {
+        console.log('⏭️ Skipping - different user');
         return;
       }
 
-      const [memberLng, memberLat] = memberLocation.coordinates;
+      console.log('✅ Match! Processing location update');
+      handleLiveLocationUpdate(data);
+    });
 
-      // Create map centered on member's location
-      const containerId = `family-map-${Math.random().toString(36).substr(2, 9)}`;
-      mapContainerRef.current.id = containerId;
-
-      const map = new window.mappls.Map(containerId, {
-        center: [memberLng, memberLat],
-        zoom: 15,
-        zoomControl: true,
-        location: true,
-      });
-
-      map.on('load', () => {
-        console.log('Map loaded successfully');
-        mapInstance.current = map;
-
-        // Add marker for member
-        new window.mappls.Marker({
-          map: map,
-          position: [memberLng, memberLat],
-          title: member.userId.name,
-          icon: createMemberIcon(),
-        });
-
-        // Get current position and start navigation
-        getCurrentPositionAndNavigate(memberLat, memberLng);
-      });
-    } catch (error) {
-      console.error('Error initializing map:', error);
-      setError('Failed to initialize map');
-    }
+    // Store unsubscribe function for cleanup
+    unsubscribeRef.current = unsubscribe;
   };
 
-  const createMemberIcon = () => {
-    // Create custom icon for member marker
-    const canvas = document.createElement('canvas');
-    canvas.width = 40;
-    canvas.height = 40;
-    const ctx = canvas.getContext('2d');
-    
-    // Draw circle
-    ctx.beginPath();
-    ctx.arc(20, 20, 18, 0, 2 * Math.PI);
-    ctx.fillStyle = '#3B82F6';
-    ctx.fill();
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    
-    // Draw person icon
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 20px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(member.userId.name.charAt(0).toUpperCase(), 20, 20);
-    
-    return canvas.toDataURL();
-  };
-
-  const getCurrentPositionAndNavigate = (destLat, destLng) => {
-    if (!navigator.geolocation) {
-      setError('Geolocation not supported');
+  const handleLiveLocationUpdate = (data) => {
+    if (!trackingPluginRef.current || !trackingPluginRef.current.trackingCall) {
+      console.warn('⚠️ Tracking plugin not ready');
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const currentLat = position.coords.latitude;
-        const currentLng = position.coords.longitude;
-        
-        setCurrentPosition({ lat: currentLat, lng: currentLng });
-
-        // Add marker for current position
-        new window.mappls.Marker({
-          map: mapInstance.current,
-          position: [currentLng, currentLat],
-          title: 'Your Location',
-          icon: createCurrentLocationIcon(),
-        });
-
-        // Fit bounds to show both markers
-        mapInstance.current.fitBounds([
-          [currentLng, currentLat],
-          [destLng, destLat],
-        ], { padding: 50 });
-
-        // Start navigation
-        startNavigation(currentLat, currentLng, destLat, destLng);
-      },
-      (error) => {
-        console.error('Error getting current position:', error);
-        setError('Could not get your location');
-      },
-      { enableHighAccuracy: true }
-    );
-  };
-
-  const createCurrentLocationIcon = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 24;
-    canvas.height = 24;
-    const ctx = canvas.getContext('2d');
-    
-    // Draw blue dot
-    ctx.beginPath();
-    ctx.arc(12, 12, 10, 0, 2 * Math.PI);
-    ctx.fillStyle = '#4285F4';
-    ctx.fill();
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    return canvas.toDataURL();
-  };
-
-  const startNavigation = (startLat, startLng, endLat, endLng) => {
-    if (!window.mappls || !window.mappls.direction) {
-      setError('Direction plugin not loaded');
-      return;
-    }
+    console.log(`🚀 Real-time update: [${data.lat}, ${data.lng}], Heading: ${data.heading}°, Speed: ${data.speed}m/s`);
 
     try {
-      // Initialize direction service
-      const directionOptions = {
-        map: mapInstance.current,
-        start: `${startLng},${startLat}`,
-        end: `${endLng},${endLat}`,
-        via: null,
-        divWidth: '350px',
-        isDraggable: false,
-        padding: 50,
-      };
+      // Mappls trackingCall() with real-time parameters from documentation
+      trackingPluginRef.current.trackingCall({
+        location: [data.lng, data.lat],   // [Lng, Lat] format (MANDATORY)
+        reRoute: true,                    // Recalculate route if user deviates (OPTIONAL, default true)
+        heading: true,                    // Rotate marker based on direction (OPTIONAL, default true)
+        mapCenter: true,                  // Keep marker centered on map (OPTIONAL, default false) - For Swiggy-like experience
+        polylineRefresh: true,            // Remove covered path (OPTIONAL, default true)
+        buffer: 25,                       // 25m buffer before rerouting (OPTIONAL, default 25)
+        etaRefresh: true,                 // Update ETA continuously (OPTIONAL, default false)
+        delay: 2000,                      // 2 second smooth animation (OPTIONAL, default 5000)
+        fitBounds: true,                  // Auto-fit map to show route (OPTIONAL, default true)
+        smoothFitBounds: 'med',           // Medium smooth fitbound (OPTIONAL) - every 3 interpolated locations
+        fitboundsOptions: {
+          padding: 100,                   // Padding around route (OPTIONAL)
+        },
+        fitCoverDistance: true,           // Include last movement in fitBounds (OPTIONAL, default false)
+        latentViz: false,                 // Smooth viz on sudden location jump (OPTIONAL, default false)
+        callback: (response) => {
+          // Update UI metrics from Mappls response
+          if (response && response.dis && response.dur) {
+            setMetrics({
+              distance: (response.dis / 1000).toFixed(2) + ' km',
+              eta: Math.ceil(response.dur / 60) + ' mins',
+            });
+            console.log(`   📏 ${(response.dis / 1000).toFixed(2)} km | ⏱️ ${Math.ceil(response.dur / 60)} mins`);
+          }
+        },
+      });
 
-      directionInstance.current = window.mappls.direction(directionOptions);
-
-      console.log('Navigation started');
-    } catch (error) {
-      console.error('Error starting navigation:', error);
-      setError('Failed to start navigation');
-    }
-  };
-
-  const startTracking = () => {
-    if (!window.mappls || !directionInstance.current) {
-      setError('Navigation not initialized');
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      setError('Geolocation not supported');
-      return;
-    }
-
-    setIsTracking(true);
-
-    // Watch position for live tracking
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        
-        setCurrentPosition({ lat, lng });
-
-        // Update tracking
-        if (directionInstance.current && directionInstance.current.tracking) {
-          const memberLocation = member.userId.currentLocation.coordinates;
-          
-          directionInstance.current.tracking({
-            map: mapInstance.current,
-            location: `${lat},${lng}`,
-            label: 'Your Location',
-            heading: true,
-            reRoute: true,
-            fitbounds: true,
-            animationSpeed: 5,
-          }, (data) => {
-            console.log('Tracking update:', data);
-          });
-        }
-      },
-      (error) => {
-        console.error('Tracking error:', error);
-        setError('Error tracking location');
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 0,
+      // Optional: Rotate map to match device orientation (First-person view)
+      // Uncomment if you want the map to physically rotate with device compass
+      /*
+      if (data.heading && mapInstance.current && mapInstance.current.setBearing) {
+        mapInstance.current.setBearing(data.heading, {
+          duration: 2000, // 2 second rotation animation
+        });
+        console.log(`🧭 Map rotated to heading: ${data.heading}°`);
       }
-    );
+      */
 
-    // Store watchId for cleanup
-    return () => {
-      navigator.geolocation.clearWatch(watchId);
-    };
+    } catch (error) {
+      console.error('❌ trackingCall error:', error);
+    }
   };
 
-  const calculateDistance = () => {
-    if (!currentPosition || !member.userId.currentLocation) return null;
-
-    const [memberLng, memberLat] = member.userId.currentLocation.coordinates;
-    const R = 6371e3; // Earth's radius in meters
-    const φ1 = (currentPosition.lat * Math.PI) / 180;
-    const φ2 = (memberLat * Math.PI) / 180;
-    const Δφ = ((memberLat - currentPosition.lat) * Math.PI) / 180;
-    const Δλ = ((memberLng - currentPosition.lng) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return Math.round(R * c); // Distance in meters
-  };
-
-  const distance = calculateDistance();
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER - Modern Overlay UI
+  // ═══════════════════════════════════════════════════════════════
 
   return (
     <div className="fixed inset-0 bg-white z-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-blue-600 text-white p-4 shadow-lg">
-        <div className="flex justify-between items-center max-w-6xl mx-auto">
+      {/* Header Overlay */}
+      <div className="absolute top-0 left-0 right-0 z-10 p-4">
+        <div className="bg-white/95 backdrop-blur-md shadow-lg rounded-xl p-4 flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold">Navigate to {member.userId.name}</h2>
-            <p className="text-sm opacity-90">Member ID: {member.memberId}</p>
-            {distance && (
-              <p className="text-sm font-semibold mt-1">📍 Distance: {distance}m</p>
-            )}
-          </div>
-          <div className="flex gap-2">
-            {!isTracking ? (
-              <button
-                onClick={startTracking}
-                className="bg-green-500 hover:bg-green-600 px-4 py-2 rounded font-semibold"
-              >
-                🎯 Start Live Tracking
-              </button>
-            ) : (
-              <span className="bg-green-500 px-4 py-2 rounded font-semibold">
-                📍 Tracking Active
+            <h2 className="font-bold text-lg">{member.userId.name}</h2>
+            <div className="text-sm text-gray-600 flex gap-4 mt-1">
+              <span className={status.includes('Live') ? 'text-green-600 font-semibold' : 'text-gray-500'}>
+                {status}
               </span>
-            )}
-            <button
-              onClick={onClose}
-              className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded font-semibold"
-            >
-              ✕ Close
-            </button>
+              {metrics.distance && (
+                <span className="font-medium">📍 {metrics.distance}</span>
+              )}
+              {metrics.eta && (
+                <span className="font-medium">⏱️ {metrics.eta}</span>
+              )}
+            </div>
           </div>
+          <button
+            onClick={onClose}
+            className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold transition"
+          >
+            ✕ Close
+          </button>
         </div>
       </div>
 
-      {/* Error Display */}
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 mx-4 mt-4 rounded">
-          {error}
-        </div>
-      )}
+      {/* Map Container - Never re-rendered by React */}
+      <div
+        ref={mapContainerRef}
+        style={{ width: '100%', height: '100vh', position: 'relative' }}
+      />
 
-      {/* Map Container */}
-      <div ref={mapContainerRef} className="flex-1" />
-
-      {/* Info Panel */}
-      <div className="bg-gray-100 p-4 border-t border-gray-300">
-        <div className="max-w-6xl mx-auto">
-          <p className="text-sm text-gray-700">
-            <span className="font-semibold">Last updated:</span>{' '}
-            {member.userId.lastLocationUpdate
-              ? new Date(member.userId.lastLocationUpdate).toLocaleString()
-              : 'Never'}
-          </p>
-          <p className="text-xs text-gray-600 mt-1">
-            💡 Tip: Enable "Start Live Tracking" for real-time navigation with route updates
-          </p>
+      {/* Footer Legend */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 p-4">
+        <div className="bg-white/95 backdrop-blur-md shadow-lg rounded-xl px-4 py-3 flex justify-center gap-6">
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 bg-red-500 rounded-full"></span>
+            <span className="text-sm font-medium">{member.userId.name} (Moving)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 bg-blue-500 rounded-full"></span>
+            <span className="text-sm font-medium">You (Destination)</span>
+          </div>
         </div>
       </div>
     </div>
