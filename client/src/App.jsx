@@ -7,6 +7,7 @@ import SignUp from "./pages/SignUp";
 import SignIn from "./pages/SignIn";
 import Profile from "./pages/Profile";
 import Itinerary from './pages/Iternary';
+import FamilyTrackerPage from './pages/FamilyTrackerPage';
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser, loading } = useAuth();
@@ -39,6 +40,15 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <MapPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/family-tracker"
+            element={
+              <ProtectedRoute>
+                <FamilyTrackerPage />
               </ProtectedRoute>
             }
           />

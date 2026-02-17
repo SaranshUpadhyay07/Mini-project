@@ -33,7 +33,7 @@ export function NavbarDemo() {
   const isHomePage = location.pathname === "/";
   const isProtectedPath = useMemo(() => {
     // Keep in sync with protected routes in App.jsx
-    return ["/map", "/profile", "/itineraryai"].includes(location.pathname);
+    return ["/map", "/profile", "/itineraryai", "/family-tracker"].includes(location.pathname);
   }, [location.pathname]);
 
   const handleLogout = async () => {
@@ -85,7 +85,7 @@ export function NavbarDemo() {
     { name: "Home", link: "/", isRoute: true },
     { name: "Map", link: "/map", isRoute: true },
     { name: "About", link: "#about", isRoute: false },
-    { name: "Family Tracker", link: "#family", isRoute: false },
+    { name: "Family Tracker", link: "/family-tracker", isRoute: true },
     { name: "Itinerary AI", link: "/itineraryai", isRoute: true },
   ];
 
@@ -93,7 +93,7 @@ export function NavbarDemo() {
     { icon: <HomeIcon />, name: "Home", link: "/", isRoute: true },
     { icon: <MapIcon />, name: "Map", link: "/map", isRoute: true },
     { icon: <InfoIcon />, name: "About", link: "#about", isRoute: false },
-    { icon: <GroupIcon />, name: "Family Tracker", link: "#family", isRoute: false },
+    { icon: <GroupIcon />, name: "Family Tracker", link: "/family-tracker", isRoute: true },
     { icon: <AutoAwesomeIcon />, name: "Itinerary AI", link: "/itineraryai", isRoute: true },
   ];
 

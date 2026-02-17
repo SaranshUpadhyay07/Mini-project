@@ -34,6 +34,10 @@ const userSchema = new mongoose.Schema(
       ref: "Family",
     },
 
+    memberId: {
+      type: String, // Format: familyId.memberIndex (e.g., 1000.1, 1000.2)
+    },
+
     trips: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -44,6 +48,18 @@ const userSchema = new mongoose.Schema(
     isSharingLocation: {
       type: Boolean,
       default: false,
+    },
+
+    currentLocation: {
+      type: {
+        type: String,
+        enum: ["Point"],
+      },
+      coordinates: [Number], // [lng, lat]
+    },
+
+    lastLocationUpdate: {
+      type: Date,
     },
   },
   { timestamps: true }

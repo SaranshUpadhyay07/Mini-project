@@ -6,6 +6,7 @@ import connectDB from './config/db.config.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import placesRoutes from './routes/places.routes.js';
+import familyRoutes from './routes/family.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -53,6 +54,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);     // signup / signin / sync
 app.use('/api/users', userRoutes);    // profile (me, update)
 app.use('/api/places', placesRoutes); // map / places APIs
+app.use('/api/family', familyRoutes); // family tracking & management
 
 // --------------------
 // 404 Handler
