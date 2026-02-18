@@ -1,490 +1,475 @@
-import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../context/AuthContext';
-import FindMyDevice from './FindMyDevice';
-import { initiateSocket, disconnectSocket, sendLocationUpdate } from '../services/socket';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import FindMyDevice from "./FindMyDevice";
+
+const API_BASE = "http://localhost:5000";
+const FAMILY_POLL_INTERVAL_MS = 5000;
+const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+
+const toTimestampMs = (value) => {
+  if (value == null) return null;
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return value < 1e12 ? value * 1000 : value;
+  }
+
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (!Number.isNaN(numeric)) {
+      return numeric < 1e12 ? numeric * 1000 : numeric;
+    }
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? null : ms;
+  }
+
+  return null;
+};
+
+const getMemberLastUpdateMs = (memberLocation) =>
+  toTimestampMs(
+    memberLocation?.lastLocationUpdate ??
+      memberLocation?.updatedAt ??
+      memberLocation?.lastUpdated ??
+      memberLocation?.timestamp ??
+      null,
+  );
+
+const computeIsStale = (memberLocation) => {
+  const lastUpdateMs = getMemberLastUpdateMs(memberLocation);
+  if (lastUpdateMs == null) return true;
+  return Date.now() - lastUpdateMs > STALE_THRESHOLD_MS;
+};
 
 const FamilyTracker = () => {
   const { currentUser } = useAuth();
+
   const [family, setFamily] = useState(null);
+  const [latestLocations, setLatestLocations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [polling, setPolling] = useState(false);
+  const [error, setError] = useState("");
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+
   const [showMap, setShowMap] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
+
   const [isCreatingFamily, setIsCreatingFamily] = useState(false);
   const [isJoiningFamily, setIsJoiningFamily] = useState(false);
-  const [familyName, setFamilyName] = useState('');
-  const [joinCode, setJoinCode] = useState('');
+  const [familyName, setFamilyName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+
   const [locationSharing, setLocationSharing] = useState(false);
+
   const [showLostMemberDialog, setShowLostMemberDialog] = useState(false);
   const [selectedLostMember, setSelectedLostMember] = useState(null);
   const [showLostMembersView, setShowLostMembersView] = useState(false);
-  
-  // Real-time tracking refs
-  const watchIdRef = useRef(null);
-  const headingRef = useRef(0);
-  const lastLocationRef = useRef(null);
 
-  // 1. Fetch family ONCE on mount
-  useEffect(() => {
-    fetchFamily();
-  }, []); // Empty deps = runs once
+  const publishIntervalRef = useRef(null);
+  const familyPollIntervalRef = useRef(null);
 
-  // 2. Initialize Socket ONLY when family first loads
-  useEffect(() => {
-    if (family && currentUser) {
-      console.log('🔌 Initializing Socket for family:', family.familyId);
-      initiateSocket(family.familyId, currentUser.uid);
-      
-      return () => {
-        console.log('🔌 Disconnecting Socket on unmount');
-        disconnectSocket();
-      };
-    }
-  }, [family?.familyId, currentUser?.uid]); // Only re-run if IDs change
+  const memberLocationMap = useMemo(() => {
+    const map = new Map();
+    latestLocations.forEach((m) => {
+      if (m?.userId) map.set(String(m.userId), m);
+    });
+    return map;
+  }, [latestLocations]);
 
-  // 3. Real-time location tracking with device compass (separate concern)
-  useEffect(() => {
-    if (!locationSharing || !family?.familyId || !currentUser?.uid) {
-      // Stop watching if disabled
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-        console.log('🛑 Stopped real-time location tracking');
-      }
-      return;
-    }
-
-    console.log('🔄 Starting real-time location tracking with compass...');
-
-    // Setup device orientation listener for compass heading
-    const handleOrientation = (event) => {
-      if (event.alpha !== null) {
-        // alpha: 0-360 degrees, where 0/360 is North
-        headingRef.current = event.alpha;
-      }
-      // Also try webkitCompassHeading for iOS
-      if (event.webkitCompassHeading !== undefined) {
-        headingRef.current = event.webkitCompassHeading;
-      }
-    };
-
-    // Request device orientation permission (iOS 13+)
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission()
-        .then(permissionState => {
-          if (permissionState === 'granted') {
-            window.addEventListener('deviceorientation', handleOrientation, true);
-            console.log('✅ Compass access granted');
-          }
-        })
-        .catch(console.error);
-    } else {
-      // Non-iOS or older iOS
-      window.addEventListener('deviceorientation', handleOrientation, true);
-    }
-
-    // Calculate heading from movement (fallback if compass not available)
-    const calculateHeadingFromMovement = (lat1, lng1, lat2, lng2) => {
-      const dLng = (lng2 - lng1) * Math.PI / 180;
-      const lat1Rad = lat1 * Math.PI / 180;
-      const lat2Rad = lat2 * Math.PI / 180;
-      
-      const y = Math.sin(dLng) * Math.cos(lat2Rad);
-      const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
-                Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
-      
-      let heading = Math.atan2(y, x) * 180 / Math.PI;
-      heading = (heading + 360) % 360; // Normalize to 0-360
-      return heading;
-    };
-
-    // Real-time geolocation watching
-    const handlePositionUpdate = async (position) => {
-      const { latitude, longitude, accuracy, speed } = position.coords;
-      
-      // Get heading from device compass or calculate from movement
-      let heading = headingRef.current;
-      
-      // If compass not available and we have previous location, calculate from movement
-      if (heading === 0 && lastLocationRef.current) {
-        heading = calculateHeadingFromMovement(
-          lastLocationRef.current.lat,
-          lastLocationRef.current.lng,
-          latitude,
-          longitude
-        );
-      }
-      
-      // Use position.coords.heading as fallback (GPS-based heading)
-      if (heading === 0 && position.coords.heading !== null) {
-        heading = position.coords.heading;
-      }
-
-      console.log('📍 Real-time location update:');
-      console.log('   Lat:', latitude, 'Lng:', longitude);
-      console.log('   Heading:', heading, '° (0=N, 90=E, 180=S, 270=W)');
-      console.log('   Speed:', speed, 'm/s');
-      console.log('   Accuracy:', accuracy, 'meters');
-
-      try {
-        // 1. Save to MongoDB via HTTP
-        const token = await currentUser.getIdToken();
-        const response = await fetch('http://localhost:5000/api/family/location/update', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ latitude, longitude, accuracy }),
-        });
-
-        if (response.ok) {
-          console.log('✅ Location saved to MongoDB');
-        }
-
-        // 2. Broadcast via Socket.io with heading
-        const socketData = {
-          familyId: family.familyId,
-          userId: currentUser.uid, // Firebase UID
-          lat: latitude,
-          lng: longitude,
-          heading: heading, // Device compass or calculated heading
-          speed: speed || 0,
-          accuracy: accuracy || 0,
-          timestamp: Date.now()
-        };
-        
-        console.log('🔌 Broadcasting to Socket.io:', socketData);
-        sendLocationUpdate(socketData);
-        
-        // Store for heading calculation
-        lastLocationRef.current = { lat: latitude, lng: longitude };
-
-      } catch (error) {
-        console.error('Error updating location:', error);
-      }
-    };
-
-    // Start continuous watching
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      handlePositionUpdate,
-      (error) => {
-        console.error('❌ Geolocation watch error:', error.message);
-        // Try to restart watching
-        if (watchIdRef.current !== null) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
-          setTimeout(() => {
-            if (locationSharing) {
-              watchIdRef.current = navigator.geolocation.watchPosition(
-                handlePositionUpdate,
-                console.error,
-                {
-                  enableHighAccuracy: true,
-                  timeout: 10000,
-                  maximumAge: 0
-                }
-              );
-            }
-          }, 3000);
-        }
-      },
-      {
-        enableHighAccuracy: true, // Use GPS
-        timeout: 10000,
-        maximumAge: 0, // Always get fresh location
-        // High accuracy mode triggers updates on every movement
-      }
+  const isCurrentUserAdmin = useMemo(() => {
+    if (!family?.members || !currentUser?.uid) return false;
+    const me = family.members.find(
+      (m) => m?.userId?.firebaseUid === currentUser.uid,
     );
+    return me?.role === "admin";
+  }, [family, currentUser?.uid]);
 
-    console.log('✅ Real-time tracking started (watch ID:', watchIdRef.current, ')');
+  const clearFamilyPolling = () => {
+    if (familyPollIntervalRef.current) {
+      clearInterval(familyPollIntervalRef.current);
+      familyPollIntervalRef.current = null;
+    }
+  };
 
-    return () => {
-      console.log('🛑 Stopping real-time tracking...');
-      
-      // Stop watching location
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
-      
-      // Remove compass listener
-      window.removeEventListener('deviceorientation', handleOrientation, true);
-      
-      // Clear refs
-      headingRef.current = 0;
-      lastLocationRef.current = null;
+  const clearLocationPublisher = () => {
+    if (publishIntervalRef.current) {
+      clearInterval(publishIntervalRef.current);
+      publishIntervalRef.current = null;
+    }
+  };
+
+  const getAuthHeaders = async (withJson = false) => {
+    const token = await currentUser.getIdToken();
+    return {
+      ...(withJson ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${token}`,
     };
-  }, [locationSharing, family?.familyId, currentUser?.uid]); // Stable dependencies
+  };
 
   const fetchFamily = async () => {
     try {
       setLoading(true);
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
+      setError("");
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_BASE}/api/family`, { headers });
       const data = await response.json();
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           setFamily(null);
-        } else {
-          throw new Error(data.message);
+          setLatestLocations([]);
+          return;
         }
-      } else {
-        setFamily(data.data.family);
+        throw new Error(data?.message || "Failed to fetch family");
       }
+
+      setFamily(data?.data?.family || null);
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || "Failed to fetch family");
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchLatestFamilyLocations = async ({ silent = false } = {}) => {
+    if (!family || !currentUser) return;
+
+    try {
+      if (!silent) setPolling(true);
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_BASE}/api/family/location/latest`, {
+        headers,
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to fetch latest locations");
+      }
+
+      const members = data?.data?.members || [];
+      setLatestLocations(members);
+
+      const syncedFromServer =
+        toTimestampMs(data?.data?.updatedAt) ??
+        toTimestampMs(data?.data?.lastUpdated) ??
+        Date.now();
+      setLastSyncedAt(new Date(syncedFromServer).toISOString());
+    } catch (err) {
+      setError(err?.message || "Failed to sync latest locations");
+    } finally {
+      if (!silent) setPolling(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFamily();
+    return () => {
+      clearFamilyPolling();
+      clearLocationPublisher();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!family) {
+      clearFamilyPolling();
+      return;
+    }
+
+    clearFamilyPolling();
+    fetchLatestFamilyLocations({ silent: true });
+    familyPollIntervalRef.current = setInterval(() => {
+      fetchLatestFamilyLocations({ silent: true });
+    }, FAMILY_POLL_INTERVAL_MS);
+
+    return clearFamilyPolling;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [family?._id, currentUser?.uid]);
+
+  useEffect(() => {
+    const me = family?.members?.find(
+      (m) => m?.userId?.firebaseUid === currentUser?.uid,
+    );
+    setLocationSharing(Boolean(me?.userId?.isSharingLocation));
+  }, [family, currentUser?.uid]);
+
+  const publishCurrentLocationOnce = async () => {
+    if (!navigator.geolocation) {
+      throw new Error("Geolocation is not supported by your browser");
+    }
+
+    const position = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      });
+    });
+
+    const { latitude, longitude, accuracy } = position.coords;
+    const headers = await getAuthHeaders(true);
+
+    const response = await fetch(`${API_BASE}/api/family/location/update`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ latitude, longitude, accuracy }),
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message || "Failed to update location");
+    }
+  };
+
+  useEffect(() => {
+    if (!locationSharing || !family || !currentUser) {
+      clearLocationPublisher();
+      return;
+    }
+
+    clearLocationPublisher();
+
+    const publisher = async () => {
+      try {
+        await publishCurrentLocationOnce();
+        await fetchLatestFamilyLocations({ silent: true });
+      } catch (err) {
+        setError(err?.message || "Location publishing failed");
+      }
+    };
+
+    publisher();
+    publishIntervalRef.current = setInterval(
+      publisher,
+      FAMILY_POLL_INTERVAL_MS,
+    );
+
+    return clearLocationPublisher;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationSharing, family?._id, currentUser?.uid]);
+
   const createFamily = async (e) => {
     e.preventDefault();
     try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ familyName }),
+      setError("");
+      const headers = await getAuthHeaders(true);
+      const response = await fetch(`${API_BASE}/api/family/create`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ familyName: familyName.trim() }),
       });
-
       const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.message);
-      
-      setFamily(data.data.family);
+
+      if (!response.ok)
+        throw new Error(data?.message || "Failed to create family");
+
+      setFamily(data?.data?.family || null);
       setIsCreatingFamily(false);
-      setFamilyName('');
-      alert(`Family created! Share this code with family members: ${data.data.familyCode}`);
+      setFamilyName("");
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || "Failed to create family");
     }
   };
 
   const joinFamily = async (e) => {
     e.preventDefault();
     try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family/join', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ familyCode: joinCode.toUpperCase() }),
+      setError("");
+      const headers = await getAuthHeaders(true);
+      const response = await fetch(`${API_BASE}/api/family/join`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ familyCode: joinCode.trim().toUpperCase() }),
       });
-
       const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.message);
-      
-      setFamily(data.data.family);
+
+      if (!response.ok)
+        throw new Error(data?.message || "Failed to join family");
+
+      setFamily(data?.data?.family || null);
       setIsJoiningFamily(false);
-      setJoinCode('');
+      setJoinCode("");
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || "Failed to join family");
     }
   };
 
-  const updateLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
-      return;
+  const leaveFamily = async () => {
+    try {
+      setError("");
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_BASE}/api/family/leave`, {
+        method: "POST",
+        headers,
+      });
+      const data = await response.json();
+
+      if (!response.ok)
+        throw new Error(data?.message || "Failed to leave family");
+
+      clearFamilyPolling();
+      clearLocationPublisher();
+      setFamily(null);
+      setLatestLocations([]);
+      setShowMap(false);
+      setSelectedMember(null);
+      setLocationSharing(false);
+    } catch (err) {
+      setError(err?.message || "Failed to leave family");
     }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const locationData = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-          };
-
-          // HTTP call to persist in MongoDB
-          const token = await currentUser.getIdToken();
-          await fetch('http://localhost:5000/api/family/location/update', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify(locationData),
-          });
-          
-          // Socket.io emit for real-time broadcast to family members
-          if (family && currentUser) {
-            sendLocationUpdate({
-              familyId: family.familyId,
-              userId: currentUser.uid,
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-              heading: position.coords.heading || 0,
-              speed: position.coords.speed || 0,
-              accuracy: position.coords.accuracy,
-              timestamp: Date.now()
-            });
-          }
-          
-          // Refresh family data to get updated locations
-          fetchFamily();
-        } catch (err) {
-          console.error('Error updating location:', err);
-        }
-      },
-      (error) => {
-        console.error('Error getting location:', error);
-      },
-      { enableHighAccuracy: true } // Added for better GPS accuracy
-    );
   };
 
   const toggleLocationSharing = async () => {
     try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family/location/toggle', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      setError("");
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_BASE}/api/family/location/toggle`, {
+        method: "POST",
+        headers,
       });
-
       const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.message);
-      
-      setLocationSharing(data.data.isSharingLocation);
-      
-      if (data.data.isSharingLocation) {
-        updateLocation();
+
+      if (!response.ok)
+        throw new Error(data?.message || "Failed to toggle location sharing");
+
+      const enabled = Boolean(data?.data?.isSharingLocation);
+      setLocationSharing(enabled);
+
+      if (enabled) {
+        await publishCurrentLocationOnce();
+        await fetchLatestFamilyLocations({ silent: true });
+      } else {
+        clearLocationPublisher();
       }
+
+      await fetchFamily();
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || "Failed to toggle location sharing");
     }
   };
 
-  const showMemberLocation = (member) => {
-    console.log('🗺️ Navigate clicked for member:', member.userId.name);
-    console.log('   Firebase UID:', member.userId.firebaseUid);
-    console.log('   MongoDB _id:', member.userId._id);
-    console.log('   Is sharing location:', member.userId.isSharingLocation);
-    console.log('   Has location:', member.userId.currentLocation);
-    console.log('   Coordinates:', member.userId.currentLocation?.coordinates);
-    
-    if (!member.userId.isSharingLocation) {
-      alert(`${member.userId.name} is not currently sharing their location.`);
+  const updateLocationNow = async () => {
+    try {
+      setError("");
+      await publishCurrentLocationOnce();
+      await fetchLatestFamilyLocations({ silent: true });
+      await fetchFamily();
+    } catch (err) {
+      setError(err?.message || "Failed to update location");
+    }
+  };
+
+  const openMemberMap = (member) => {
+    const latest = memberLocationMap.get(String(member?.userId?._id));
+    if (!latest?.isSharingLocation) {
+      alert(
+        `${member?.userId?.name || "This member"} is not sharing location.`,
+      );
       return;
     }
-    
-    if (!member.userId.currentLocation || !member.userId.currentLocation.coordinates) {
-      alert(`Location data not available for ${member.userId.name}. They may need to enable location sharing.`);
+
+    if (!latest?.location) {
+      alert(
+        `No recent location is available for ${member?.userId?.name || "this member"}.`,
+      );
       return;
     }
-    
-    const [lng, lat] = member.userId.currentLocation.coordinates;
-    if (!lat || !lng) {
-      alert(`Invalid location coordinates for ${member.userId.name}.`);
-      return;
-    }
-    
-    console.log(`✅ Opening map to track ${member.userId.name} at [${lat}, ${lng}]`);
+
     setSelectedMember(member);
     setShowMap(true);
   };
 
   const reportLostMember = async (userId) => {
     try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family/member/lost/report', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+      setError("");
+      const headers = await getAuthHeaders(true);
+      const response = await fetch(
+        `${API_BASE}/api/family/member/lost/report`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ lostUserId: userId }),
         },
-        body: JSON.stringify({ lostUserId: userId }),
-      });
-
+      );
       const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.message);
-      
-      alert('Lost member reported successfully. All family members have been notified.');
+
+      if (!response.ok)
+        throw new Error(data?.message || "Failed to report lost member");
+
       setShowLostMemberDialog(false);
-      fetchFamily();
+      setSelectedLostMember(null);
+      await fetchFamily();
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || "Failed to report lost member");
     }
   };
 
   const resolveLostMember = async (lostMemberId) => {
     try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family/member/lost/resolve', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+      setError("");
+      const headers = await getAuthHeaders(true);
+      const response = await fetch(
+        `${API_BASE}/api/family/member/lost/resolve`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ lostMemberId }),
         },
-        body: JSON.stringify({ lostMemberId }),
-      });
-
+      );
       const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.message);
-      
-      alert('Lost member marked as found!');
-      fetchFamily();
+
+      if (!response.ok)
+        throw new Error(data?.message || "Failed to resolve lost member");
+
+      await fetchFamily();
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || "Failed to resolve lost member");
     }
   };
 
-  const getMemberDistance = (member) => {
-    // This would calculate distance from current user to member
-    // Implementation depends on your location tracking setup
-    return null;
-  };
-
   if (loading) {
-    return <div className="flex justify-center items-center h-screen">Loading...</div>;
+    return (
+      <div className="flex justify-center items-center h-screen">
+        Loading family tracker...
+      </div>
+    );
   }
 
   if (!family) {
     return (
-      <div className="max-w-2xl mx-auto p-6">
-        <h1 className="text-3xl font-bold mb-6">Family Tracker</h1>
-        
+      <div className="max-w-3xl mx-auto p-6 space-y-6">
+        <h1 className="text-3xl font-bold">Family Tracker</h1>
+        <p className="text-gray-600">
+          Create a family or join one using a family code.
+        </p>
+
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded">
             {error}
           </div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Create Family */}
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Create a Family</h2>
+          <section className="bg-white p-6 rounded-lg shadow space-y-4">
+            <h2 className="text-xl font-semibold">Create Family</h2>
+
             {!isCreatingFamily ? (
               <button
                 onClick={() => setIsCreatingFamily(true)}
-                className="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
               >
-                Create New Family
+                Create Family
               </button>
             ) : (
-              <form onSubmit={createFamily} className="space-y-4">
+              <form onSubmit={createFamily} className="space-y-3">
                 <input
                   type="text"
-                  placeholder="Family Name"
+                  placeholder="Family name"
                   value={familyName}
                   onChange={(e) => setFamilyName(e.target.value)}
                   className="w-full px-4 py-2 border rounded"
@@ -493,37 +478,40 @@ const FamilyTracker = () => {
                 <div className="flex gap-2">
                   <button
                     type="submit"
-                    className="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
                   >
-                    Create
+                    Save
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsCreatingFamily(false)}
-                    className="flex-1 bg-gray-300 px-4 py-2 rounded hover:bg-gray-400"
+                    onClick={() => {
+                      setIsCreatingFamily(false);
+                      setFamilyName("");
+                    }}
+                    className="flex-1 bg-gray-200 px-4 py-2 rounded hover:bg-gray-300"
                   >
                     Cancel
                   </button>
                 </div>
               </form>
             )}
-          </div>
+          </section>
 
-          {/* Join Family */}
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Join a Family</h2>
+          <section className="bg-white p-6 rounded-lg shadow space-y-4">
+            <h2 className="text-xl font-semibold">Join Family</h2>
+
             {!isJoiningFamily ? (
               <button
                 onClick={() => setIsJoiningFamily(true)}
-                className="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
               >
-                Join Existing Family
+                Join Family
               </button>
             ) : (
-              <form onSubmit={joinFamily} className="space-y-4">
+              <form onSubmit={joinFamily} className="space-y-3">
                 <input
                   type="text"
-                  placeholder="Family Code"
+                  placeholder="Family code"
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                   className="w-full px-4 py-2 border rounded uppercase"
@@ -533,31 +521,31 @@ const FamilyTracker = () => {
                 <div className="flex gap-2">
                   <button
                     type="submit"
-                    className="flex-1 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
                   >
                     Join
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsJoiningFamily(false)}
-                    className="flex-1 bg-gray-300 px-4 py-2 rounded hover:bg-gray-400"
+                    onClick={() => {
+                      setIsJoiningFamily(false);
+                      setJoinCode("");
+                    }}
+                    className="flex-1 bg-gray-200 px-4 py-2 rounded hover:bg-gray-300"
                   >
                     Cancel
                   </button>
                 </div>
               </form>
             )}
-          </div>
+          </section>
         </div>
       </div>
     );
   }
 
-  const isAdmin = family.adminUserId._id === currentUser.uid || 
-                  family.adminUserId === currentUser.uid;
-
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
       {showMap && selectedMember ? (
         <FindMyDevice
           member={selectedMember}
@@ -570,124 +558,195 @@ const FamilyTracker = () => {
         />
       ) : (
         <>
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <div className="flex justify-between items-center mb-4">
+          {error && (
+            <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
+
+          <section className="bg-white rounded-lg shadow p-6 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h1 className="text-3xl font-bold">{family.familyName}</h1>
-                <p className="text-gray-600">Family Code: <span className="font-mono font-bold">{family.familyCode}</span></p>
-                <p className="text-sm text-gray-500">Family ID: {family.familyId}</p>
+                <p className="text-gray-600">
+                  Family code:{" "}
+                  <span className="font-mono font-semibold">
+                    {family.familyCode}
+                  </span>
+                </p>
+                <p className="text-sm text-gray-500">
+                  Family ID: {family.familyId}
+                </p>
+                <p className="text-sm text-gray-500">
+                  Last synced:{" "}
+                  {lastSyncedAt
+                    ? new Date(lastSyncedAt).toLocaleTimeString()
+                    : "—"}
+                </p>
               </div>
+
               <div className="flex gap-2">
                 <button
-                  onClick={toggleLocationSharing}
-                  className={`px-4 py-2 rounded ${
-                    locationSharing
-                      ? 'bg-green-500 text-white hover:bg-green-600'
-                      : 'bg-gray-300 hover:bg-gray-400'
-                  }`}
+                  onClick={() => fetchLatestFamilyLocations()}
+                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
                 >
-                  {locationSharing ? '📍 Sharing Location' : '📍 Start Sharing'}
+                  {polling ? "Refreshing..." : "Refresh Family Data"}
                 </button>
-                {locationSharing && (
-                  <button
-                    onClick={updateLocation}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  >
-                    🔄 Update Now
-                  </button>
-                )}
+                <button
+                  onClick={leaveFamily}
+                  className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                >
+                  Leave Family
+                </button>
               </div>
             </div>
 
-            {family.activeTripId && (
-              <div className="bg-blue-100 border border-blue-300 rounded p-3 mb-4">
-                <p className="text-blue-800 font-semibold">🚗 Active Trip in Progress</p>
-              </div>
-            )}
+            <div className="border-t pt-4">
+              <h2 className="text-lg font-semibold mb-2">
+                My Location Sharing
+              </h2>
+              <p className="text-sm text-gray-600 mb-3">
+                When sharing is ON, your location is sent every 5 seconds.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    locationSharing
+                      ? "bg-green-100 text-green-700"
+                      : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {locationSharing ? "Sharing ON" : "Sharing OFF"}
+                </span>
 
-            {family.lostMembers?.filter(lm => !lm.isResolved).length > 0 && (
-              <div 
-                className="bg-red-100 border border-red-300 rounded p-3 mb-4 cursor-pointer hover:bg-red-200 transition"
-                onClick={() => setShowLostMembersView(true)}
-              >
-                <div className="flex justify-between items-center">
-                  <p className="text-red-800 font-semibold">⚠️ {family.lostMembers.filter(lm => !lm.isResolved).length} Member(s) Reported Lost</p>
-                  {isAdmin && (
-                    <p className="text-red-600 text-sm">Click to manage →</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+                <button
+                  onClick={toggleLocationSharing}
+                  className={`px-4 py-2 rounded text-white ${
+                    locationSharing
+                      ? "bg-gray-700 hover:bg-gray-800"
+                      : "bg-green-600 hover:bg-green-700"
+                  }`}
+                >
+                  {locationSharing ? "Stop Sharing" : "Start Sharing"}
+                </button>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-2xl font-semibold mb-4">Family Members ({family.members.length})</h2>
-            
+                <button
+                  onClick={updateLocationNow}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Update My Location Now
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {family.lostMembers?.filter((lm) => !lm.isResolved).length > 0 && (
+            <section
+              className="bg-red-50 border border-red-300 rounded p-4 cursor-pointer hover:bg-red-100"
+              onClick={() => setShowLostMembersView(true)}
+            >
+              <div className="flex justify-between items-center">
+                <p className="font-semibold text-red-800">
+                  {family.lostMembers.filter((lm) => !lm.isResolved).length}{" "}
+                  unresolved lost member report(s)
+                </p>
+                <span className="text-sm text-red-700">View details</span>
+              </div>
+            </section>
+          )}
+
+          <section className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-2xl font-semibold mb-4">
+              Family Members ({family.members.length})
+            </h2>
+
             <div className="space-y-3">
               {family.members.map((member) => {
-                const isCurrentUser = member.userId._id === currentUser.uid;
-                const hasLocation = member.userId.currentLocation && member.userId.currentLocation.coordinates;
-                const distance = getMemberDistance(member);
+                const isCurrentUser =
+                  member?.userId?.firebaseUid === currentUser?.uid;
+                const latest = memberLocationMap.get(
+                  String(member?.userId?._id),
+                );
+
+                const isSharing = Boolean(
+                  latest?.isSharingLocation ??
+                  member?.userId?.isSharingLocation,
+                );
+                const hasLocation = Boolean(latest?.location);
+                const lastUpdateMs = getMemberLastUpdateMs(latest);
+                const isStale =
+                  latest?.isStale != null
+                    ? Boolean(latest.isStale)
+                    : computeIsStale(latest);
 
                 return (
                   <div
-                    key={member.userId._id}
+                    key={member?.userId?._id}
                     className={`flex items-center justify-between p-4 border rounded-lg ${
-                      isCurrentUser ? 'bg-blue-50 border-blue-300' : 'bg-gray-50'
+                      isCurrentUser
+                        ? "bg-blue-50 border-blue-300"
+                        : "bg-gray-50"
                     }`}
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-xl">
-                        {member.userId.name?.charAt(0).toUpperCase()}
+                      <div className="w-11 h-11 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center">
+                        {member?.userId?.name?.charAt(0)?.toUpperCase() || "?"}
                       </div>
                       <div>
                         <p className="font-semibold">
-                          {member.userId.name}
-                          {isCurrentUser && <span className="text-blue-600 ml-2">(You)</span>}
-                          {member.role === 'admin' && <span className="ml-2 text-xs bg-yellow-200 px-2 py-1 rounded">Admin</span>}
+                          {member?.userId?.name || "Unknown"}
+                          {isCurrentUser && (
+                            <span className="ml-2 text-blue-600">(You)</span>
+                          )}
+                          {member?.role === "admin" && (
+                            <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                              Admin
+                            </span>
+                          )}
                         </p>
-                        <p className="text-sm text-gray-600">ID: {member.memberId}</p>
-                        {member.userId.isSharingLocation && hasLocation ? (
-                          <p className="text-xs text-green-600">
-                            📍 Sharing location
-                            {member.userId.lastLocationUpdate && 
-                              ` • Updated ${new Date(member.userId.lastLocationUpdate).toLocaleTimeString()}`
-                            }
-                          </p>
-                        ) : (
-                          <p className="text-xs text-gray-500">📍 Not sharing location</p>
-                        )}
-                        {distance && (
-                          <p className="text-xs text-orange-600">⚠️ {Math.round(distance)}m away</p>
-                        )}
+                        <p className="text-sm text-gray-600">
+                          ID: {member?.memberId || "—"}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          Sharing: {isSharing ? "On" : "Off"}{" "}
+                          {isSharing && hasLocation && (
+                            <span
+                              className={
+                                isStale ? "text-orange-600" : "text-green-600"
+                              }
+                            >
+                              • {isStale ? "Stale" : "Fresh"}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Last update:{" "}
+                          {lastUpdateMs != null
+                            ? new Date(lastUpdateMs).toLocaleTimeString()
+                            : "Never"}
+                        </p>
                       </div>
                     </div>
 
                     <div className="flex gap-2">
-                      {hasLocation && !isCurrentUser && (
+                      {!isCurrentUser && (
                         <button
-                          onClick={() => showMemberLocation(member)}
-                          className="px-6 py-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 flex items-center gap-2 font-medium shadow-md transition-all hover:shadow-lg"
-                          title="Locate device"
+                          onClick={() => openMemberMap(member)}
+                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                          Locate
+                          View on Map
                         </button>
                       )}
 
                       {!isCurrentUser && (
                         <button
                           onClick={() => {
-                            setSelectedLostMember(member.userId._id);
+                            setSelectedLostMember(member?.userId?._id);
                             setShowLostMemberDialog(true);
                           }}
-                          className="px-4 py-2.5 bg-red-50 text-red-600 rounded-full hover:bg-red-100 font-medium transition-all"
-                          title="Report as lost"
+                          className="px-4 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200"
                         >
-                          🚨 Report
+                          Report Lost
                         </button>
                       )}
                     </div>
@@ -695,14 +754,15 @@ const FamilyTracker = () => {
                 );
               })}
             </div>
-          </div>
+          </section>
 
-          {/* Lost Members View Dialog */}
           {showLostMembersView && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-2xl font-bold text-red-700">⚠️ Lost Members</h3>
+                  <h3 className="text-xl font-bold text-red-700">
+                    Lost Member Reports
+                  </h3>
                   <button
                     onClick={() => setShowLostMembersView(false)}
                     className="text-gray-500 hover:text-gray-700 text-2xl"
@@ -713,92 +773,89 @@ const FamilyTracker = () => {
 
                 <div className="space-y-4">
                   {family.lostMembers
-                    ?.filter(lm => !lm.isResolved)
+                    ?.filter((lm) => !lm.isResolved)
                     .map((lostMember) => {
-                      const member = family.members.find(m => m.userId._id === lostMember.userId);
-                      const reporter = family.members.find(m => m.userId._id === lostMember.reportedBy);
-                      
-                      return (
-                        <div key={lostMember._id} className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-2">
-                                <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center text-white font-bold text-xl">
-                                  {member?.userId.name?.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                  <h4 className="font-bold text-lg">{member?.userId.name}</h4>
-                                  <p className="text-sm text-gray-600">Member ID: {member?.memberId}</p>
-                                </div>
-                              </div>
-                              
-                              <div className="ml-15 space-y-1 text-sm">
-                                <p className="text-gray-700">
-                                  <span className="font-semibold">Reported by:</span> {reporter?.userId.name}
-                                </p>
-                                <p className="text-gray-700">
-                                  <span className="font-semibold">Reported at:</span>{' '}
-                                  {new Date(lostMember.reportedAt).toLocaleString()}
-                                </p>
-                                {lostMember.lastKnownLocation?.coordinates?.[0] && lostMember.lastKnownLocation?.coordinates?.[1] && (
-                                  <p className="text-gray-700">
-                                    <span className="font-semibold">Last known location:</span>{' '}
-                                    Lat: {lostMember.lastKnownLocation.coordinates[1].toFixed(6)}, 
-                                    Lng: {lostMember.lastKnownLocation.coordinates[0].toFixed(6)}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
+                      const member = family.members.find(
+                        (m) => m?.userId?._id === lostMember?.userId,
+                      );
+                      const reporter = family.members.find(
+                        (m) => m?.userId?._id === lostMember?.reportedBy,
+                      );
 
-                            {isAdmin && (
-                              <button
-                                onClick={() => resolveLostMember(lostMember._id)}
-                                className="ml-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-semibold whitespace-nowrap"
-                              >
-                                ✓ Mark as Found
-                              </button>
-                            )}
-                          </div>
+                      return (
+                        <div
+                          key={lostMember?._id}
+                          className="bg-red-50 border border-red-300 rounded p-4"
+                        >
+                          <p className="font-semibold">
+                            {member?.userId?.name || "Unknown member"}
+                          </p>
+                          <p className="text-sm text-gray-700">
+                            Reported by: {reporter?.userId?.name || "Unknown"}
+                          </p>
+                          <p className="text-sm text-gray-700">
+                            Reported at:{" "}
+                            {new Date(lostMember?.reportedAt).toLocaleString()}
+                          </p>
+
+                          {lostMember?.lastKnownLocation?.coordinates
+                            ?.length === 2 && (
+                            <p className="text-sm text-gray-700">
+                              Last known location: Lat{" "}
+                              {lostMember.lastKnownLocation.coordinates[1].toFixed(
+                                6,
+                              )}
+                              , Lng{" "}
+                              {lostMember.lastKnownLocation.coordinates[0].toFixed(
+                                6,
+                              )}
+                            </p>
+                          )}
+
+                          {isCurrentUserAdmin && (
+                            <button
+                              onClick={() => resolveLostMember(lostMember?._id)}
+                              className="mt-3 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                            >
+                              Mark as Found
+                            </button>
+                          )}
                         </div>
                       );
                     })}
                 </div>
 
-                {family.lostMembers?.filter(lm => !lm.isResolved).length === 0 && (
-                  <p className="text-center text-gray-500 py-8">No lost members at the moment.</p>
+                {family.lostMembers?.filter((lm) => !lm.isResolved).length ===
+                  0 && (
+                  <p className="text-center text-gray-500 py-8">
+                    No unresolved reports.
+                  </p>
                 )}
-
-                <div className="mt-6 flex justify-end">
-                  <button
-                    onClick={() => setShowLostMembersView(false)}
-                    className="px-6 py-2 bg-gray-300 rounded hover:bg-gray-400 font-semibold"
-                  >
-                    Close
-                  </button>
-                </div>
               </div>
             </div>
           )}
 
-          {/* Lost Member Dialog */}
           {showLostMemberDialog && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md">
-                <h3 className="text-xl font-bold mb-4">Report Lost Member</h3>
-                <p className="mb-4">Are you sure you want to report this member as lost? All family members will be notified.</p>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full">
+                <h3 className="text-xl font-bold mb-3">Report Lost Member</h3>
+                <p className="text-gray-700 mb-4">
+                  This creates a lost-member report for your family. Continue?
+                </p>
+
                 <div className="flex gap-2">
                   <button
                     onClick={() => reportLostMember(selectedLostMember)}
-                    className="flex-1 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                    className="flex-1 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
                   >
-                    Report Lost
+                    Confirm Report
                   </button>
                   <button
                     onClick={() => {
                       setShowLostMemberDialog(false);
                       setSelectedLostMember(null);
                     }}
-                    className="flex-1 bg-gray-300 px-4 py-2 rounded hover:bg-gray-400"
+                    className="flex-1 bg-gray-200 px-4 py-2 rounded hover:bg-gray-300"
                   >
                     Cancel
                   </button>

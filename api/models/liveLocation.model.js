@@ -40,9 +40,10 @@ const liveLocationSchema = new mongoose.Schema(
       default: Date.now,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 liveLocationSchema.index({ location: "2dsphere" });
+liveLocationSchema.index({ familyId: 1, userId: 1 }, { unique: true });
 
 export default mongoose.model("LiveLocation", liveLocationSchema);

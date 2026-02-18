@@ -10,6 +10,8 @@ import {
   reportLostMember,
   resolveLostMember,
   leaveFamily,
+  getLatestFamilyLocations,
+  getLatestMemberLocation,
 } from "../controllers/family.controller.js";
 import { authenticateUser } from "../middlewares/auth.middleware.js";
 
@@ -31,6 +33,8 @@ router.post("/trip/start", startTrip); // Family admin only
 // Location tracking
 router.post("/location/update", updateMemberLocation);
 router.post("/location/toggle", toggleLocationSharing);
+router.get("/location/latest", getLatestFamilyLocations);
+router.get("/location/member/:memberUserId", getLatestMemberLocation);
 
 // Lost member management
 router.post("/member/lost/report", reportLostMember);
