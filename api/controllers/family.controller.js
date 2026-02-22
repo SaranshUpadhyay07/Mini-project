@@ -3,16 +3,23 @@ import User from "../models/user.model.js";
 import LiveLocation from "../models/liveLocation.model.js";
 import Trip from "../models/trip.model.js";
 
+const FILE = "api/controllers/family.controller.js";
+const log = (fn, message) => console.log(`[${FILE}] [${fn}] ${message}`);
+const errorLog = (fn, message) => console.error(`[${FILE}] [${fn}] ${message}`);
+
 const LOCATION_STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
 // Create a new family
 export const createFamily = async (req, res) => {
+  const FN = "createFamily";
+  log(FN, "entry");
   try {
     const { familyName } = req.body;
     const userId = req.user._id;
 
     // Check if user is already in a family
     if (req.user.familyId) {
+      log(FN, "branch already_in_family=true");
       return res.status(400).json({
         success: false,
         message:
@@ -20,6 +27,7 @@ export const createFamily = async (req, res) => {
       });
     }
 
+    log(FN, "db create Family");
     const family = new Family({
       familyName,
       adminUserId: userId,
@@ -33,15 +41,23 @@ export const createFamily = async (req, res) => {
     });
 
     await family.save();
+    log(FN, "db save Family ok");
 
     // Assign memberId to admin
     family.members[0].memberId = family.assignMemberId(1);
+    log(FN, `memberId assigned adminMemberId=${family.members[0].memberId}`);
     await family.save();
+    log(FN, "db save Family (memberId) ok");
 
     // Update user
     req.user.familyId = family._id;
     req.user.memberId = family.members[0].memberId;
+    log(
+      FN,
+      `user updated familyId=${family._id} memberId=${req.user.memberId}`,
+    );
     await req.user.save();
+    log(FN, "db save User ok");
 
     res.status(201).json({
       success: true,
@@ -51,7 +67,9 @@ export const createFamily = async (req, res) => {
         familyCode: family.familyCode,
       },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Create family error:", error);
     res.status(500).json({
       success: false,
@@ -63,12 +81,15 @@ export const createFamily = async (req, res) => {
 
 // Join family using family code
 export const joinFamily = async (req, res) => {
+  const FN = "joinFamily";
+  log(FN, "entry");
   try {
     const { familyCode } = req.body;
     const userId = req.user._id;
 
     // Check if user is already in a family
     if (req.user.familyId) {
+      log(FN, "branch already_in_family=true");
       return res.status(400).json({
         success: false,
         message:
@@ -76,9 +97,11 @@ export const joinFamily = async (req, res) => {
       });
     }
 
+    log(FN, "db find Family by familyCode");
     const family = await Family.findOne({ familyCode });
 
     if (!family) {
+      log(FN, "branch family_not_found=true");
       return res.status(404).json({
         success: false,
         message: "Invalid family code",
@@ -91,6 +114,7 @@ export const joinFamily = async (req, res) => {
     );
 
     if (existingMember) {
+      log(FN, "branch existing_member=true");
       return res.status(400).json({
         success: false,
         message: "You are already a member of this family",
@@ -100,6 +124,7 @@ export const joinFamily = async (req, res) => {
     // Add member
     const memberIndex = family.members.length + 1;
     const memberId = family.assignMemberId(memberIndex);
+    log(FN, `memberId assigned memberId=${memberId}`);
 
     family.members.push({
       userId,
@@ -107,11 +132,13 @@ export const joinFamily = async (req, res) => {
       memberId,
     });
 
+    log(FN, "db save Family (add member)");
     await family.save();
 
     // Update user
     req.user.familyId = family._id;
     req.user.memberId = memberId;
+    log(FN, `user updated familyId=${family._id} memberId=${memberId}`);
     await req.user.save();
 
     res.status(200).json({
@@ -119,7 +146,9 @@ export const joinFamily = async (req, res) => {
       message: "Successfully joined family",
       data: { family },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Join family error:", error);
     res.status(500).json({
       success: false,
@@ -131,16 +160,21 @@ export const joinFamily = async (req, res) => {
 
 // Get family details with members
 export const getFamily = async (req, res) => {
+  const FN = "getFamily";
+  log(FN, "entry");
   try {
     const userId = req.user._id;
+    log(FN, `request userId=${userId}`);
 
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(404).json({
         success: false,
         message: "You are not part of any family",
       });
     }
 
+    log(FN, "db findById Family + populate");
     const family = await Family.findById(req.user.familyId)
       .populate(
         "members.userId",
@@ -150,6 +184,7 @@ export const getFamily = async (req, res) => {
       .populate("activeTripId");
 
     if (!family) {
+      log(FN, "branch family_not_found=true");
       return res.status(404).json({
         success: false,
         message: "Family not found",
@@ -160,7 +195,9 @@ export const getFamily = async (req, res) => {
       success: true,
       data: { family },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Get family error:", error);
     res.status(500).json({
       success: false,
@@ -172,15 +209,19 @@ export const getFamily = async (req, res) => {
 
 // Get all families (admin only)
 export const getAllFamilies = async (req, res) => {
+  const FN = "getAllFamilies";
+  log(FN, "entry");
   try {
     // Check if user is app admin
     if (req.user.role !== "admin") {
+      log(FN, `branch access_denied role=${req.user.role}`);
       return res.status(403).json({
         success: false,
         message: "Access denied. Admin only.",
       });
     }
 
+    log(FN, "db find Families + populate + select");
     const families = await Family.find()
       .populate("adminUserId", "firebaseUid name email")
       .populate(
@@ -190,6 +231,7 @@ export const getAllFamilies = async (req, res) => {
       .select("-familyCode"); // Don't expose family codes to admin
 
     // Calculate member counts and prepare data for map view
+    log(FN, `compute familiesData count=${families.length}`);
     const familiesData = families.map((family) => ({
       _id: family._id,
       familyId: family.familyId,
@@ -207,7 +249,9 @@ export const getAllFamilies = async (req, res) => {
       success: true,
       data: { families: familiesData },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Get all families error:", error);
     res.status(500).json({
       success: false,
@@ -219,11 +263,14 @@ export const getAllFamilies = async (req, res) => {
 
 // Update member location
 export const updateMemberLocation = async (req, res) => {
+  const FN = "updateMemberLocation";
+  log(FN, "entry");
   try {
     const { latitude, longitude, accuracy } = req.body;
     const userId = req.user._id;
 
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
@@ -234,6 +281,7 @@ export const updateMemberLocation = async (req, res) => {
     const lngNum = Number(longitude);
 
     if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
+      log(FN, "branch invalid_coords=true (not finite)");
       return res.status(400).json({
         success: false,
         message: "Valid latitude and longitude are required",
@@ -241,6 +289,7 @@ export const updateMemberLocation = async (req, res) => {
     }
 
     if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) {
+      log(FN, "branch invalid_coords=true (out of range)");
       return res.status(400).json({
         success: false,
         message: "Latitude/longitude out of range",
@@ -248,6 +297,7 @@ export const updateMemberLocation = async (req, res) => {
     }
 
     const now = new Date();
+    log(FN, `coords parsed lat=${latNum} lng=${lngNum}`);
 
     // Update user's current location (authoritative)
     req.user.currentLocation = {
@@ -255,9 +305,11 @@ export const updateMemberLocation = async (req, res) => {
       coordinates: [lngNum, latNum],
     };
     req.user.lastLocationUpdate = now;
+    log(FN, "db save User location");
     await req.user.save();
 
     // Update or create live location (authoritative)
+    log(FN, "db upsert LiveLocation");
     const liveDoc = await LiveLocation.findOneAndUpdate(
       { userId, familyId: req.user.familyId },
       {
@@ -275,6 +327,7 @@ export const updateMemberLocation = async (req, res) => {
     );
 
     // Check for distance alerts
+    log(FN, "db find Family for distance alerts");
     const family = await Family.findById(req.user.familyId).populate(
       "members.userId",
       "currentLocation name",
@@ -282,6 +335,7 @@ export const updateMemberLocation = async (req, res) => {
 
     const alerts = [];
     if (family && family.activeTripId) {
+      log(FN, "branch activeTrip=true");
       // Calculate distance from admin/family head
       const admin = family.members.find((m) => m.role === "admin");
       if (admin && admin.userId.currentLocation) {
@@ -291,6 +345,10 @@ export const updateMemberLocation = async (req, res) => {
         );
 
         if (distance > family.maxDistanceAlert) {
+          log(
+            FN,
+            `branch distance_alert=true distance=${Math.round(distance)}`,
+          );
           alerts.push({
             type: "distance",
             message: `You are ${Math.round(distance)}m away from the family head`,
@@ -314,7 +372,9 @@ export const updateMemberLocation = async (req, res) => {
         alerts,
       },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Update location error:", error);
     res.status(500).json({
       success: false,
@@ -326,8 +386,11 @@ export const updateMemberLocation = async (req, res) => {
 
 // Toggle location sharing
 export const toggleLocationSharing = async (req, res) => {
+  const FN = "toggleLocationSharing";
+  log(FN, "entry");
   try {
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
@@ -335,9 +398,11 @@ export const toggleLocationSharing = async (req, res) => {
     }
 
     req.user.isSharingLocation = !req.user.isSharingLocation;
+    log(FN, `user isSharingLocation=${req.user.isSharingLocation}`);
     await req.user.save();
 
     // Keep LiveLocation in sync with consent immediately (even if no new coords yet)
+    log(FN, "db upsert LiveLocation consent");
     const liveDoc = await LiveLocation.findOneAndUpdate(
       { userId: req.user._id, familyId: req.user.familyId },
       {
@@ -357,7 +422,9 @@ export const toggleLocationSharing = async (req, res) => {
           : null,
       },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Toggle location sharing error:", error);
     res.status(500).json({
       success: false,
@@ -369,14 +436,18 @@ export const toggleLocationSharing = async (req, res) => {
 
 // Get latest locations for all family members (polling-friendly)
 export const getLatestFamilyLocations = async (req, res) => {
+  const FN = "getLatestFamilyLocations";
+  log(FN, "entry");
   try {
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
       });
     }
 
+    log(FN, "db findById Family + populate members");
     const family = await Family.findById(req.user.familyId)
       .populate(
         "members.userId",
@@ -385,12 +456,14 @@ export const getLatestFamilyLocations = async (req, res) => {
       .populate("adminUserId", "_id");
 
     if (!family) {
+      log(FN, "branch family_not_found=true");
       return res.status(404).json({
         success: false,
         message: "Family not found",
       });
     }
 
+    log(FN, "db find LiveLocation by familyId");
     const liveLocations = await LiveLocation.find({
       familyId: req.user.familyId,
     }).select("userId location accuracy lastUpdatedAt isSharing");
@@ -471,7 +544,9 @@ export const getLatestFamilyLocations = async (req, res) => {
         members,
       },
     });
+    log(FN, `exit success members=${members.length}`);
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Get latest family locations error:", error);
     res.status(500).json({
       success: false,
@@ -483,10 +558,13 @@ export const getLatestFamilyLocations = async (req, res) => {
 
 // Get latest location for a single member in the same family
 export const getLatestMemberLocation = async (req, res) => {
+  const FN = "getLatestMemberLocation";
+  log(FN, "entry");
   try {
     const { memberUserId } = req.params;
 
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
@@ -494,18 +572,21 @@ export const getLatestMemberLocation = async (req, res) => {
     }
 
     if (!memberUserId) {
+      log(FN, "branch missing_memberUserId=true");
       return res.status(400).json({
         success: false,
         message: "memberUserId is required",
       });
     }
 
+    log(FN, `db findById Family members for memberUserId=${memberUserId}`);
     const family = await Family.findById(req.user.familyId).populate(
       "members.userId",
       "name firebaseUid isSharingLocation currentLocation lastLocationUpdate",
     );
 
     if (!family) {
+      log(FN, "branch family_not_found=true");
       return res.status(404).json({
         success: false,
         message: "Family not found",
@@ -517,12 +598,14 @@ export const getLatestMemberLocation = async (req, res) => {
     );
 
     if (!familyMember) {
+      log(FN, "branch member_not_in_family=true");
       return res.status(404).json({
         success: false,
         message: "Member not found in your family",
       });
     }
 
+    log(FN, "db findOne LiveLocation for member");
     const liveDoc = await LiveLocation.findOne({
       familyId: req.user.familyId,
       userId: memberUserId,
@@ -586,7 +669,9 @@ export const getLatestMemberLocation = async (req, res) => {
         isStale,
       },
     });
+    log(FN, `exit success isStale=${isStale}`);
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Get latest member location error:", error);
     res.status(500).json({
       success: false,
@@ -598,19 +683,24 @@ export const getLatestMemberLocation = async (req, res) => {
 
 // Start trip (admin only)
 export const startTrip = async (req, res) => {
+  const FN = "startTrip";
+  log(FN, "entry");
   try {
     const { title, location, startDate, endDate } = req.body;
 
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
       });
     }
 
+    log(FN, "db findById Family");
     const family = await Family.findById(req.user.familyId);
 
     if (!family) {
+      log(FN, "branch family_not_found=true");
       return res.status(404).json({
         success: false,
         message: "Family not found",
@@ -619,12 +709,14 @@ export const startTrip = async (req, res) => {
 
     // Check if user is admin
     if (family.adminUserId.toString() !== req.user._id.toString()) {
+      log(FN, "branch not_family_admin=true");
       return res.status(403).json({
         success: false,
         message: "Only family admin can start a trip",
       });
     }
 
+    log(FN, "db create Trip + save");
     const trip = new Trip({
       familyId: family._id,
       createdBy: req.user._id,
@@ -638,6 +730,7 @@ export const startTrip = async (req, res) => {
     await trip.save();
 
     family.activeTripId = trip._id;
+    log(FN, `family activeTripId set tripId=${trip._id}`);
     await family.save();
 
     res.status(201).json({
@@ -645,7 +738,9 @@ export const startTrip = async (req, res) => {
       message: "Trip started successfully",
       data: { trip },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Start trip error:", error);
     res.status(500).json({
       success: false,
@@ -657,19 +752,24 @@ export const startTrip = async (req, res) => {
 
 // Report lost member
 export const reportLostMember = async (req, res) => {
+  const FN = "reportLostMember";
+  log(FN, "entry");
   try {
     const { lostUserId } = req.body;
 
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
       });
     }
 
+    log(FN, "db findById Family");
     const family = await Family.findById(req.user.familyId);
 
     if (!family) {
+      log(FN, "branch family_not_found=true");
       return res.status(404).json({
         success: false,
         message: "Family not found",
@@ -682,6 +782,7 @@ export const reportLostMember = async (req, res) => {
     );
 
     if (!member) {
+      log(FN, "branch user_not_member=true");
       return res.status(400).json({
         success: false,
         message: "User is not a member of this family",
@@ -689,6 +790,7 @@ export const reportLostMember = async (req, res) => {
     }
 
     // Get last known location
+    log(FN, "db findById User (lost user)");
     const lostUser = await User.findById(lostUserId);
 
     family.lostMembers.push({
@@ -696,15 +798,19 @@ export const reportLostMember = async (req, res) => {
       reportedBy: req.user._id,
       lastKnownLocation: lostUser.currentLocation,
     });
+    log(FN, "family lostMembers push");
 
     await family.save();
+    log(FN, "db save Family ok");
 
     res.status(200).json({
       success: true,
       message: "Lost member reported successfully",
       data: { family },
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Report lost member error:", error);
     res.status(500).json({
       success: false,
@@ -716,30 +822,40 @@ export const reportLostMember = async (req, res) => {
 
 // Resolve lost member
 export const resolveLostMember = async (req, res) => {
+  const FN = "resolveLostMember";
+  log(FN, "entry");
   try {
     const { lostMemberId } = req.body;
 
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
       });
     }
 
+    log(FN, "db findById Family");
     const family = await Family.findById(req.user.familyId);
 
     const lostMember = family.lostMembers.id(lostMemberId);
     if (lostMember) {
+      log(FN, "branch lostMember_found=true");
       lostMember.isResolved = true;
       lostMember.resolvedAt = new Date();
       await family.save();
+      log(FN, "db save Family ok");
+    } else {
+      log(FN, "branch lostMember_found=false");
     }
 
     res.status(200).json({
       success: true,
       message: "Lost member status updated",
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Resolve lost member error:", error);
     res.status(500).json({
       success: false,
@@ -751,18 +867,23 @@ export const resolveLostMember = async (req, res) => {
 
 // Leave family
 export const leaveFamily = async (req, res) => {
+  const FN = "leaveFamily";
+  log(FN, "entry");
   try {
     if (!req.user.familyId) {
+      log(FN, "branch no_family=true");
       return res.status(400).json({
         success: false,
         message: "You are not part of any family",
       });
     }
 
+    log(FN, "db findById Family");
     const family = await Family.findById(req.user.familyId);
 
     // Can't leave if you're admin
     if (family.adminUserId.toString() === req.user._id.toString()) {
+      log(FN, "branch admin_cannot_leave=true");
       return res.status(400).json({
         success: false,
         message:
@@ -771,21 +892,26 @@ export const leaveFamily = async (req, res) => {
     }
 
     // Remove member
+    log(FN, "update family.members remove current user");
     family.members = family.members.filter(
       (m) => m.userId.toString() !== req.user._id.toString(),
     );
     await family.save();
+    log(FN, "db save Family ok");
 
     // Update user
     req.user.familyId = null;
     req.user.memberId = null;
+    log(FN, "user cleared familyId/memberId");
     await req.user.save();
 
     res.status(200).json({
       success: true,
       message: "Successfully left family",
     });
+    log(FN, "exit success");
   } catch (error) {
+    errorLog(FN, `error: ${error?.message || error}`);
     console.error("Leave family error:", error);
     res.status(500).json({
       success: false,

@@ -72,4 +72,9 @@ _CFG = GeminiChatConfig(
 
 def send(user_id: str, chat_id: str, message: str) -> str:
     # Returns the model's raw JSON string.
-    return send_message(user_id=user_id, chat_id=chat_id, cfg=_CFG, message=message)
+    raw = send_message(user_id=user_id, chat_id=chat_id, cfg=_CFG, message=message)
+    print(
+        f"[Agent/agents/planner_agent.py] [send] model_output chars={len(raw or '')}\n{raw}",
+        flush=True,
+    )
+    return raw

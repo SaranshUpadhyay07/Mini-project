@@ -28,4 +28,10 @@ _CFG = GeminiChatConfig(
 
 
 def send(user_id: str, chat_id: str, message: str) -> str:
-    return send_message(user_id=user_id, chat_id=chat_id, cfg=_CFG, message=message)
+    reply = send_message(user_id=user_id, chat_id=chat_id, cfg=_CFG, message=message)
+    print(
+        f"[Agent/agents/chatbot_agent.py] [send] model_output user_id={user_id} chat_id={chat_id} chars={len(reply or '')}",
+        flush=True,
+    )
+    print(f"[Agent/agents/chatbot_agent.py] [send] {reply}", flush=True)
+    return reply

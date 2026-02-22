@@ -7,6 +7,7 @@ from groq import Groq
 
 load_dotenv()
 
+FILE = "Agent/agents/editor_agent.py"
 MODEL = "openai/gpt-oss-20b"
 
 SYSTEM_INSTRUCTION = """
@@ -52,10 +53,17 @@ Rules:
 """.strip()
 
 
+def _log(fn: str, message: str) -> None:
+    # Simple terminal tracing. Avoids printing secrets.
+    print(f"[{FILE}] [{fn}] {message}", flush=True)
+
+
 def _client() -> Groq:
     api_key = os.getenv("Groq_api_key")
     if not api_key:
+        _log("_client", "error missing Groq_api_key in environment")
         raise RuntimeError("Groq_api_key not found in environment")
+    _log("_client", "creating Groq client")
     return Groq(api_key=api_key)
 
 
@@ -80,13 +88,21 @@ def build_edit_prompt(
 
 def extract_edits(user_message: str) -> Dict[str, Any]:
 
+    fn = "extract_edits"
+    _log(fn, "entry")
+
     msg = (user_message or "").strip()
+    _log(fn, f"input received (len={len(msg)})")
+
     if msg.upper() == "RESET":
+        _log(fn, "branch RESET=true")
+        _log(fn, "exit")
         return {"reset": True, "ops": [], "dirty_days": [], "questions": []}
 
     client = _client()
 
     # Ask Groq for strict JSON.
+    _log(fn, f"groq_call model={MODEL}")
     resp = client.chat.completions.create(
         model=MODEL,
         messages=[
@@ -98,6 +114,12 @@ def extract_edits(user_message: str) -> Dict[str, Any]:
     )
 
     content = (resp.choices[0].message.content or "").strip()
+
+    # Print model output to terminal as requested (truncated).
+    preview = content if len(content) <= 2000 else (content[:2000] + "...(truncated)")
+    _log(fn, "model_output_begin")
+    print(preview, flush=True)
+    _log(fn, "model_output_end")
 
     # Parse and minimally validate/normalize.
     data = json.loads(content)
@@ -123,4 +145,9 @@ def extract_edits(user_message: str) -> Dict[str, Any]:
             continue
     data["dirty_days"] = normalized_days
 
+    _log(
+        fn,
+        f"parsed output reset={data.get('reset')} ops={len(data.get('ops', []))} dirty_days={len(data.get('dirty_days', []))} questions={len(data.get('questions', []))}",
+    )
+    _log(fn, "exit")
     return data
