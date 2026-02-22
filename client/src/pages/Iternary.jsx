@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+
+const AGENT_BASE = import.meta.env.VITE_AGENT_URL || "http://localhost:8000";
 import { NavbarDemo } from "../components/Navbar";
 import Header from "../components/Header";
 import { useAuth } from "../context/AuthContext";
@@ -92,7 +94,7 @@ export default function Itinerary() {
     setError("");
 
     try {
-      const res = await fetch("http://localhost:8000/planner", {
+      const res = await fetch(`${AGENT_BASE}/planner`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -138,7 +140,7 @@ export default function Itinerary() {
     const created = newChatId();
     try {
       // Planner has a server-side reset; chat does not. This call is safe even if you haven't used planner yet.
-      await fetch("http://localhost:8000/planner", {
+      await fetch(`${AGENT_BASE}/planner`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -181,7 +183,7 @@ export default function Itinerary() {
 
     try {
       const endpoint = mode === "planner" ? "/planner" : "/chat";
-      const res = await fetch(`http://localhost:8000${endpoint}`, {
+      const res = await fetch(`${AGENT_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

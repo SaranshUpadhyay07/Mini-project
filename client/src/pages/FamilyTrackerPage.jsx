@@ -1,11 +1,140 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from '../context/AuthContext';
-import FamilyTracker from '../components/FamilyTracker';
+import { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import FamilyTracker from "../components/FamilyTracker";
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const FamilyTrackerPage = () => {
   const { currentUser } = useAuth();
   const [distanceAlerts, setDistanceAlerts] = useState([]);
   const [lostMemberAlerts, setLostMemberAlerts] = useState([]);
+
+  const checkDistanceAlerts = async () => {
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`${API_BASE}/api/family`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.data.family) {
+        const family = data.data.family;
+
+        // Get current user's location
+        if (!navigator.geolocation) return;
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const currentLat = position.coords.latitude;
+            const currentLng = position.coords.longitude;
+
+            // Find admin location
+            const admin = family.members.find((m) => m.role === "admin");
+            if (!admin || !admin.userId.currentLocation) return;
+
+            const [adminLng, adminLat] =
+              admin.userId.currentLocation.coordinates;
+
+            // Calculate distance
+            const distance = calculateDistance(
+              currentLat,
+              currentLng,
+              adminLat,
+              adminLng,
+            );
+
+            // Check if distance exceeds threshold
+            if (distance > family.maxDistanceAlert) {
+              const alert = {
+                id: Date.now(),
+                message: `You are ${Math.round(distance)}m away from the family head!`,
+                distance,
+                timestamp: new Date(),
+              };
+
+              setDistanceAlerts((prev) => {
+                // Only add if not already shown recently
+                const recent = prev.find(
+                  (a) => Date.now() - a.timestamp < 300000, // 5 minutes
+                );
+                if (recent) return prev;
+
+                return [...prev, alert];
+              });
+
+              // Show browser notification if permitted
+              if (
+                "Notification" in window &&
+                Notification.permission === "granted"
+              ) {
+                new Notification("Distance Alert", {
+                  body: alert.message,
+                  icon: "/icon.png",
+                  tag: "distance-alert",
+                });
+              }
+            }
+          },
+          (error) => {
+            console.error("Error getting location for distance check:", error);
+          },
+        );
+      }
+    } catch (error) {
+      console.error("Error checking distance alerts:", error);
+    }
+  };
+
+  const checkLostMembers = async () => {
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`${API_BASE}/api/family`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.data.family) {
+        const family = data.data.family;
+        const unresolvedLost =
+          family.lostMembers?.filter((lm) => !lm.isResolved) || [];
+
+        if (unresolvedLost.length > 0) {
+          setLostMemberAlerts(unresolvedLost);
+
+          // Show notification for new lost members
+          unresolvedLost.forEach((lostMember) => {
+            if (
+              "Notification" in window &&
+              Notification.permission === "granted"
+            ) {
+              // Find member name
+              const member = family.members.find(
+                (m) => m.userId._id === lostMember.userId,
+              );
+
+              if (member) {
+                new Notification("Lost Member Alert", {
+                  body: `${member.userId.name} has been reported as lost!`,
+                  icon: "/icon.png",
+                  tag: `lost-${lostMember._id}`,
+                });
+              }
+            }
+          });
+        } else {
+          setLostMemberAlerts([]);
+        }
+      }
+    } catch (error) {
+      console.error("Error checking lost members:", error);
+    }
+  };
 
   useEffect(() => {
     // Check for distance alerts every 60 seconds
@@ -19,126 +148,8 @@ const FamilyTrackerPage = () => {
     checkLostMembers();
 
     return () => clearInterval(alertInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const checkDistanceAlerts = async () => {
-    try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      
-      if (response.ok && data.data.family) {
-        const family = data.data.family;
-        
-        // Get current user's location
-        if (!navigator.geolocation) return;
-
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const currentLat = position.coords.latitude;
-            const currentLng = position.coords.longitude;
-
-            // Find admin location
-            const admin = family.members.find(m => m.role === 'admin');
-            if (!admin || !admin.userId.currentLocation) return;
-
-            const [adminLng, adminLat] = admin.userId.currentLocation.coordinates;
-            
-            // Calculate distance
-            const distance = calculateDistance(
-              currentLat,
-              currentLng,
-              adminLat,
-              adminLng
-            );
-
-            // Check if distance exceeds threshold
-            if (distance > family.maxDistanceAlert) {
-              const alert = {
-                id: Date.now(),
-                message: `You are ${Math.round(distance)}m away from the family head!`,
-                distance,
-                timestamp: new Date(),
-              };
-
-              setDistanceAlerts(prev => {
-                // Only add if not already shown recently
-                const recent = prev.find(
-                  a => Date.now() - a.timestamp < 300000 // 5 minutes
-                );
-                if (recent) return prev;
-                
-                return [...prev, alert];
-              });
-
-              // Show browser notification if permitted
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('Distance Alert', {
-                  body: alert.message,
-                  icon: '/icon.png',
-                  tag: 'distance-alert',
-                });
-              }
-            }
-          },
-          (error) => {
-            console.error('Error getting location for distance check:', error);
-          }
-        );
-      }
-    } catch (error) {
-      console.error('Error checking distance alerts:', error);
-    }
-  };
-
-  const checkLostMembers = async () => {
-    try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch('http://localhost:5000/api/family', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      
-      if (response.ok && data.data.family) {
-        const family = data.data.family;
-        const unresolvedLost = family.lostMembers?.filter(lm => !lm.isResolved) || [];
-
-        if (unresolvedLost.length > 0) {
-          setLostMemberAlerts(unresolvedLost);
-
-          // Show notification for new lost members
-          unresolvedLost.forEach((lostMember) => {
-            if ('Notification' in window && Notification.permission === 'granted') {
-              // Find member name
-              const member = family.members.find(
-                m => m.userId._id === lostMember.userId
-              );
-              
-              if (member) {
-                new Notification('Lost Member Alert', {
-                  body: `${member.userId.name} has been reported as lost!`,
-                  icon: '/icon.png',
-                  tag: `lost-${lostMember._id}`,
-                });
-              }
-            }
-          });
-        } else {
-          setLostMemberAlerts([]);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking lost members:', error);
-    }
-  };
 
   const calculateDistance = (lat1, lng1, lat2, lng2) => {
     const R = 6371e3; // Earth's radius in meters
@@ -156,12 +167,12 @@ const FamilyTrackerPage = () => {
   };
 
   const dismissDistanceAlert = (id) => {
-    setDistanceAlerts(prev => prev.filter(alert => alert.id !== id));
+    setDistanceAlerts((prev) => prev.filter((alert) => alert.id !== id));
   };
 
   // Request notification permission on mount
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
+    if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
   }, []);

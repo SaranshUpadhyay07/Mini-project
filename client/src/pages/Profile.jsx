@@ -1,4 +1,6 @@
 import { useAuth } from "../context/AuthContext";
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
@@ -29,7 +31,7 @@ const Profile = () => {
       }
 
       const token = await currentUser.getIdToken();
-      const res = await fetch("http://localhost:5000/api/users/me", {
+      const res = await fetch(`${API_BASE}/api/users/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -38,7 +40,9 @@ const Profile = () => {
       const data = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
-        throw new Error(data?.message || `Failed to load profile (HTTP ${res.status})`);
+        throw new Error(
+          data?.message || `Failed to load profile (HTTP ${res.status})`,
+        );
       }
 
       setProfile(data.user);
@@ -53,7 +57,9 @@ const Profile = () => {
     } catch (fetchError) {
       console.error("Failed to load profile:", fetchError);
       setProfile(null);
-      setError(fetchError?.message || "Could not load your profile. Please try again.");
+      setError(
+        fetchError?.message || "Could not load your profile. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -86,7 +92,7 @@ const Profile = () => {
       setError("");
 
       const token = await currentUser.getIdToken();
-      const res = await fetch("http://localhost:5000/api/users/me", {
+      const res = await fetch(`${API_BASE}/api/users/me`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -101,7 +107,9 @@ const Profile = () => {
       const data = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
-        throw new Error(data?.message || `Failed to save profile (HTTP ${res.status})`);
+        throw new Error(
+          data?.message || `Failed to save profile (HTTP ${res.status})`,
+        );
       }
 
       setProfile(data.user);
@@ -116,7 +124,9 @@ const Profile = () => {
       }
     } catch (saveError) {
       console.error("Failed to save profile:", saveError);
-      setError(saveError?.message || "Could not save profile. Please try again.");
+      setError(
+        saveError?.message || "Could not save profile. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -139,8 +149,12 @@ const Profile = () => {
     return (
       <div className="min-h-screen bg-gray-100 flex justify-center items-center p-4">
         <div className="bg-white shadow-xl rounded-2xl p-8 w-full max-w-md">
-          <h1 className="text-2xl font-bold text-orange-600 mb-3 text-center">Not signed in</h1>
-          <p className="text-gray-600 text-center">Please sign in to view your profile.</p>
+          <h1 className="text-2xl font-bold text-orange-600 mb-3 text-center">
+            Not signed in
+          </h1>
+          <p className="text-gray-600 text-center">
+            Please sign in to view your profile.
+          </p>
           <div className="mt-6 flex gap-3">
             <button
               onClick={() => navigate("/")}
@@ -177,11 +191,18 @@ const Profile = () => {
           <form onSubmit={handleSave} className="space-y-4">
             <div>
               <p className="text-sm text-gray-500 mb-1">Email</p>
-              <p className="font-semibold break-all">{profile?.email || currentUser.email || "-"}</p>
+              <p className="font-semibold break-all">
+                {profile?.email || currentUser.email || "-"}
+              </p>
             </div>
 
             <div>
-              <label className="block text-sm text-gray-500 mb-1" htmlFor="name">Name</label>
+              <label
+                className="block text-sm text-gray-500 mb-1"
+                htmlFor="name"
+              >
+                Name
+              </label>
               <input
                 id="name"
                 name="name"
@@ -194,7 +215,12 @@ const Profile = () => {
             </div>
 
             <div>
-              <label className="block text-sm text-gray-500 mb-1" htmlFor="phone">Phone</label>
+              <label
+                className="block text-sm text-gray-500 mb-1"
+                htmlFor="phone"
+              >
+                Phone
+              </label>
               <input
                 id="phone"
                 name="phone"
@@ -230,28 +256,38 @@ const Profile = () => {
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-gray-500">Name</p>
-                <p className="font-semibold">{profile?.name || "Not provided"}</p>
+                <p className="font-semibold">
+                  {profile?.name || "Not provided"}
+                </p>
               </div>
 
               <div>
                 <p className="text-sm text-gray-500">Email</p>
-                <p className="font-semibold break-all">{profile?.email || currentUser.email || "-"}</p>
+                <p className="font-semibold break-all">
+                  {profile?.email || currentUser.email || "-"}
+                </p>
               </div>
 
               <div>
                 <p className="text-sm text-gray-500">Phone</p>
-                <p className="font-semibold">{profile?.phone || "Not provided"}</p>
+                <p className="font-semibold">
+                  {profile?.phone || "Not provided"}
+                </p>
               </div>
 
               <div>
                 <p className="text-sm text-gray-500">User ID</p>
-                <p className="font-mono text-xs break-all">{profile?.firebaseUid || "-"}</p>
+                <p className="font-mono text-xs break-all">
+                  {profile?.firebaseUid || "-"}
+                </p>
               </div>
 
               <div>
                 <p className="text-sm text-gray-500">Joined</p>
                 <p className="font-semibold">
-                  {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString() : "-"}
+                  {profile?.createdAt
+                    ? new Date(profile.createdAt).toLocaleDateString()
+                    : "-"}
                 </p>
               </div>
             </div>

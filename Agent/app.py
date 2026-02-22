@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes.chat_routes import router as chat_router
@@ -5,13 +7,15 @@ from routes.planner_routes import router as planner_router
 
 app = FastAPI()
 
-# Allow browser calls from the Vite dev server (preflight OPTIONS must succeed).
+# Allow browser calls from the frontend.
+# Set CORS_ORIGIN in Agent/.env for production (e.g. https://your-app.vercel.app).
+# Falls back to localhost for local development.
+_raw_origin = os.getenv("CORS_ORIGIN", "http://localhost:5173")
+_allow_origins = [o.strip() for o in _raw_origin.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

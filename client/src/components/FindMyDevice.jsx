@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 /**
  * Member Location View
  * - Polling-based tracking only (no socket/realtime transport)
@@ -315,7 +317,7 @@ const FindMyDevice = ({ member, currentUser, onClose }) => {
 
       const token = await currentUser.getIdToken();
       const res = await fetch(
-        `http://localhost:5000/api/family/location/member/${member.userId._id}`,
+        `${API_BASE}/api/family/location/member/${member.userId._id}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

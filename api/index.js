@@ -27,7 +27,7 @@ console.log(`[API] [bootstrap] resolved port ${PORT}`);
 // --------------------
 app.use(
   cors({
-    origin: "http://localhost:5173", // frontend
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
     credentials: true,
   }),
 );

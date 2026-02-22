@@ -81,7 +81,7 @@ export const setupSocket = (server) => {
   log("setupSocket", "entry");
   const io = new Server(server, {
     cors: {
-      origin: "http://localhost:5173", // React Frontend URL
+      origin: process.env.CORS_ORIGIN || "http://localhost:5173",
       methods: ["GET", "POST"],
       credentials: true,
     },

@@ -1,18 +1,27 @@
-// Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// Firebase config is driven by VITE_ environment variables so that
+// keys are never hardcoded in source and can differ per deployment.
+// Add these to client/.env (never commit that file):
+//
+//   VITE_FIREBASE_API_KEY=...
+//   VITE_FIREBASE_AUTH_DOMAIN=...
+//   VITE_FIREBASE_PROJECT_ID=...
+//   VITE_FIREBASE_STORAGE_BUCKET=...
+//   VITE_FIREBASE_MESSAGING_SENDER_ID=...
+//   VITE_FIREBASE_APP_ID=...
+//   VITE_FIREBASE_MEASUREMENT_ID=...   (optional)
+
 const firebaseConfig = {
-  apiKey: "AIzaSyCKVbrMrTCgLmYwKIWWdgcz3r4qxdvSbpY",
-  authDomain: "pilgrim-itinerary-odisha.firebaseapp.com",
-  projectId: "pilgrim-itinerary-odisha",
-  storageBucket: "pilgrim-itinerary-odisha.firebasestorage.app",
-  messagingSenderId: "846051489683",
-  appId: "1:846051489683:web:579dfd8e8c7ddb68611a66",
-  measurementId: "G-M68RHHJMBT"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 // Initialize Firebase
@@ -21,7 +30,10 @@ const app = initializeApp(firebaseConfig);
 // Initialize Firebase Authentication
 export const auth = getAuth(app);
 
-// Initialize Analytics (optional)
-export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
+// Initialize Analytics (only in browser, only if measurement ID is provided)
+export const analytics =
+  typeof window !== "undefined" && import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+    ? getAnalytics(app)
+    : null;
 
 export default app;

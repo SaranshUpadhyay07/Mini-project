@@ -9,6 +9,8 @@ import {
 } from "firebase/auth";
 import { auth } from "../config/firebase";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 // Create context
 const AuthContext = createContext(null);
 
@@ -32,7 +34,7 @@ export const AuthProvider = ({ children }) => {
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
-        password
+        password,
       );
 
       const user = userCredential.user;
@@ -40,7 +42,7 @@ export const AuthProvider = ({ children }) => {
       const token = await user.getIdToken();
 
       // Sync user with backend (MongoDB)
-      const res = await fetch("http://localhost:5000/api/auth/sync", {
+      const res = await fetch(`${API_BASE}/api/auth/sync`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -70,7 +72,7 @@ export const AuthProvider = ({ children }) => {
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email,
-        password
+        password,
       );
       setCurrentUser(userCredential.user); // keep ProtectedRoute from redirecting before listener updates
       return { success: true, user: userCredential.user };
@@ -89,7 +91,7 @@ export const AuthProvider = ({ children }) => {
       setCurrentUser(user);
       const token = await user.getIdToken();
 
-      const res = await fetch("http://localhost:5000/api/auth/sync", {
+      const res = await fetch(`${API_BASE}/api/auth/sync`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

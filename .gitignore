@@ -6,10 +6,19 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+env/
 
-
+# Environment variables (ALL services)
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
 
 # OS / editor junk
 .DS_Store
 .idea/
 .vscode/
+
+# Logs
+*.log

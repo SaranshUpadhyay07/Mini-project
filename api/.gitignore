@@ -2,10 +2,15 @@
 node_modules
 package-lock.json
 
+# Environment variables (NEVER commit secrets)
+.env
+.env.local
+.env.*.local
 
-
-# Firebase Service Account (CRITICAL - DO NOT COMMIT)
+# Firebase Service Account keys (CRITICAL - contains private keys)
 config/firebase-service-account.json
+config/pilgrim-itinerary-odisha-firebase-adminsdk-fbsvc-c490868502.json
+config/*.json
 
 # Logs
 logs
