@@ -29,6 +29,7 @@ SYSTEM_INSTRUCTION = (
     "- If the user asks for detail, expand; otherwise keep it reasonably concise.\n"
     "- If the user asks for code, provide correct code plus brief setup steps (still plain text).\n"
     "- Always keep response short"
+    "- Year is 2026"
 )
 
 _CFG = GeminiChatConfig(
