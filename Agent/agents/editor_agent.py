@@ -28,11 +28,16 @@ Output schema (MUST follow exactly):
   "reset": boolean,
   "ops": [
     {
-      "op": "set_meta" | "set_stay_area" | "remove_activity" | "replace_activity" | "add_activity" | "note",
+      "op": "set_meta" | "set_stay_area" | "remove_activity" | "replace_activity" | "add_activity" | "move_activity" | "note",
       "day": number | -1,
       "slot": "morning" | "afternoon" | "evening" | "NA",
       "index": number | -1,
-      "value": object | string
+      "value": object | string,
+      "from_day": number | -1,
+      "from_slot": "morning" | "afternoon" | "evening" | "NA",
+      "from_index": number | -1,
+      "to_day": number | -1,
+      "to_slot": "morning" | "afternoon" | "evening" | "NA"
     }
   ],
   "dirty_days": [number],
@@ -49,6 +54,15 @@ Rules:
 - "set_meta": value may include keys like destination, date_range, trip_length_days, pace, budget, tags.
 - "set_stay_area": value like {"area": "...", "price_level": "...", "why": "..."}.
 - "note": use for constraints like "avoid temples", "wheelchair access", "kid-friendly", etc when not tied to a single activity.
+- "move_activity": use whenever the user wants to move or swap an activity from one day (or slot) to another.
+    - Set from_day, from_slot, from_index to identify the activity being moved.
+    - Set to_day, to_slot to identify the destination.
+    - ALWAYS add BOTH from_day and to_day to dirty_days.
+    - Set day=-1, slot="NA", index=-1 (the generic fields are unused for move_activity).
+    - value may contain override details for the moved activity, or {} if unchanged.
+- MOVE CONSISTENCY RULE: When a move_activity op is present, both the source day and the destination day
+  will be fully regenerated. The source day must have the activity removed and replaced with something
+  appropriate. The destination day must gain the moved activity. Never leave a day with a gap.
 - Always return valid JSON even if you need to ask questions.
 """.strip()
 
@@ -67,12 +81,46 @@ def _client() -> Groq:
     return Groq(api_key=api_key)
 
 
+def _has_move_ops(edits: Dict[str, Any]) -> bool:
+    return any(op.get("op") == "move_activity" for op in (edits.get("ops") or []))
+
+
+def _move_ops_summary(edits: Dict[str, Any]) -> str:
+    """Return a human-readable summary of each move_activity op for the prompt."""
+    lines = []
+    for op in edits.get("ops") or []:
+        if op.get("op") != "move_activity":
+            continue
+        fd = op.get("from_day", "?")
+        fs = op.get("from_slot", "?")
+        fi = op.get("from_index", "?")
+        td = op.get("to_day", "?")
+        ts = op.get("to_slot", "?")
+        lines.append(f"  - Move activity at Day {fd} / {fs}[{fi}]  →  Day {td} / {ts}")
+    return "\n".join(lines) if lines else ""
+
+
 def build_edit_prompt(
     *,
     current_itinerary: Dict[str, Any],
     user_edit_request: str,
     edits: Dict[str, Any],
 ) -> str:
+    move_section = ""
+    if _has_move_ops(edits):
+        summary = _move_ops_summary(edits)
+        move_section = (
+            "\n\nMOVE CONSISTENCY RULES (MANDATORY — moves detected):\n"
+            "One or more activities are being moved between days. You MUST:\n"
+            "1. ADD the activity to the destination day/slot.\n"
+            "2. REMOVE the activity from the source day/slot.\n"
+            "3. FILL the gap left in the source day with a geographically and "
+            "logistically appropriate replacement activity so that day remains complete.\n"
+            "4. Ensure every day still has morning, afternoon, and evening arrays with at least one item each.\n"
+            "5. Do NOT leave any day with fewer activities than before unless the user explicitly asked to remove something.\n"
+            f"\nMoves to apply:\n{summary}\n"
+        )
+
     return (
         "You previously created this itinerary JSON (Odisha only). "
         "Now apply the user's requested edits.\n\n"
@@ -81,7 +129,8 @@ def build_edit_prompt(
         "USER_EDIT_REQUEST:\n"
         f"{user_edit_request}\n\n"
         "EDIT_OPS_JSON (for guidance):\n"
-        f"{json.dumps(edits, ensure_ascii=False)}\n\n"
+        f"{json.dumps(edits, ensure_ascii=False)}\n"
+        f"{move_section}\n"
         "Return the updated itinerary in the same JSON schema."
     )
 

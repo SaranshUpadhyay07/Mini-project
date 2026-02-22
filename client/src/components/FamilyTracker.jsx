@@ -6,6 +6,12 @@ const API_BASE = "http://localhost:5000";
 const FAMILY_POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 5 * 60 * 1000;
 
+// --- Location publishing thresholds ---
+// Only publish a GPS fix when at least one of these conditions is true:
+const ACCURACY_THRESHOLD_M = 200; // fix is accurate enough (<=200 m)
+const MIN_DISTANCE_M = 5; // device moved at least 5 m since last publish
+const MAX_PUBLISH_INTERVAL_MS = 30_000; // 30 s has passed regardless of accuracy/distance
+
 const toTimestampMs = (value) => {
   if (value == null) return null;
 
@@ -70,8 +76,13 @@ const FamilyTracker = () => {
   const [selectedLostMember, setSelectedLostMember] = useState(null);
   const [showLostMembersView, setShowLostMembersView] = useState(false);
 
-  const publishIntervalRef = useRef(null);
+  // watchPosition ID (replaces the old setInterval publisher)
+  const watchIdRef = useRef(null);
   const familyPollIntervalRef = useRef(null);
+
+  // Track last-published state so we can apply thresholds
+  const lastPublishedCoordsRef = useRef(null); // { lat, lng }
+  const lastPublishedAtRef = useRef(null); // timestamp ms
 
   const memberLocationMap = useMemo(() => {
     const map = new Map();
@@ -97,9 +108,12 @@ const FamilyTracker = () => {
   };
 
   const clearLocationPublisher = () => {
-    if (publishIntervalRef.current) {
-      clearInterval(publishIntervalRef.current);
-      publishIntervalRef.current = null;
+    if (watchIdRef.current !== null) {
+      navigator.geolocation?.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+      console.log(
+        "[FamilyTracker] [clearLocationPublisher] watchPosition cleared",
+      );
     }
   };
 
@@ -198,28 +212,28 @@ const FamilyTracker = () => {
     setLocationSharing(Boolean(me?.userId?.isSharingLocation));
   }, [family, currentUser?.uid]);
 
-  const publishCurrentLocationOnce = async () => {
-    if (!navigator.geolocation) {
-      throw new Error("Geolocation is not supported by your browser");
-    }
+  // Haversine distance in metres between two {lat, lng} points
+  const _haversineMeters = (a, b) => {
+    const R = 6_371_000;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const sinHalfLat = Math.sin(dLat / 2);
+    const sinHalfLng = Math.sin(dLng / 2);
+    const s =
+      sinHalfLat * sinHalfLat +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinHalfLng * sinHalfLng;
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+  };
 
-    const position = await new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      });
-    });
-
-    const { latitude, longitude, accuracy } = position.coords;
+  // POST a single fix to the backend
+  const _publishToServer = async (latitude, longitude, accuracy) => {
     const headers = await getAuthHeaders(true);
-
     const response = await fetch(`${API_BASE}/api/family/location/update`, {
       method: "POST",
       headers,
       body: JSON.stringify({ latitude, longitude, accuracy }),
     });
-
     const data = await response.json().catch(() => null);
     if (!response.ok) {
       throw new Error(data?.message || "Failed to update location");
@@ -232,21 +246,70 @@ const FamilyTracker = () => {
       return;
     }
 
-    clearLocationPublisher();
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser");
+      return;
+    }
 
-    const publisher = async () => {
+    clearLocationPublisher();
+    console.log(
+      "[FamilyTracker] [startLocationWatcher] starting watchPosition",
+    );
+
+    const onPosition = async (position) => {
+      const { latitude, longitude, accuracy } = position.coords;
+      const now = Date.now();
+
+      const last = lastPublishedCoordsRef.current;
+      const lastAt = lastPublishedAtRef.current;
+
+      const accuracyOk = accuracy <= ACCURACY_THRESHOLD_M;
+      const movedEnough =
+        !last ||
+        _haversineMeters(last, { lat: latitude, lng: longitude }) >=
+          MIN_DISTANCE_M;
+      const timedOut = !lastAt || now - lastAt >= MAX_PUBLISH_INTERVAL_MS;
+
+      console.log(
+        `[FamilyTracker] [watchPosition] fix accuracy=${Math.round(accuracy)}m` +
+          ` accuracyOk=${accuracyOk} movedEnough=${movedEnough} timedOut=${timedOut}`,
+      );
+
+      // Publish only when at least one condition is met
+      if (!accuracyOk && !timedOut) return;
+      if (!movedEnough && !timedOut) return;
+
       try {
-        await publishCurrentLocationOnce();
+        console.log(
+          `[FamilyTracker] [watchPosition] publishing lat=${latitude} lng=${longitude} accuracy=${Math.round(accuracy)}m`,
+        );
+        await _publishToServer(latitude, longitude, accuracy);
+        lastPublishedCoordsRef.current = { lat: latitude, lng: longitude };
+        lastPublishedAtRef.current = now;
         await fetchLatestFamilyLocations({ silent: true });
       } catch (err) {
         setError(err?.message || "Location publishing failed");
+        console.error("[FamilyTracker] [watchPosition] publish error:", err);
       }
     };
 
-    publisher();
-    publishIntervalRef.current = setInterval(
-      publisher,
-      FAMILY_POLL_INTERVAL_MS,
+    const onError = (err) => {
+      console.error("[FamilyTracker] [watchPosition] GPS error:", err.message);
+      setError(`GPS error (${err.code}): ${err.message}`);
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      onPosition,
+      onError,
+      {
+        enableHighAccuracy: true,
+        timeout: 20_000,
+        maximumAge: 0,
+      },
+    );
+
+    console.log(
+      `[FamilyTracker] [startLocationWatcher] watchId=${watchIdRef.current}`,
     );
 
     return clearLocationPublisher;
@@ -341,7 +404,25 @@ const FamilyTracker = () => {
       setLocationSharing(enabled);
 
       if (enabled) {
-        await publishCurrentLocationOnce();
+        // Get a one-shot fix to immediately post a location on enable
+        if (navigator.geolocation) {
+          try {
+            const position = await new Promise((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                timeout: 10_000,
+                maximumAge: 0,
+              });
+            });
+            const { latitude, longitude, accuracy } = position.coords;
+            await _publishToServer(latitude, longitude, accuracy);
+          } catch (geoErr) {
+            console.warn(
+              "[FamilyTracker] [toggleLocationSharing] initial fix failed:",
+              geoErr.message,
+            );
+          }
+        }
         await fetchLatestFamilyLocations({ silent: true });
       } else {
         clearLocationPublisher();
@@ -356,7 +437,21 @@ const FamilyTracker = () => {
   const updateLocationNow = async () => {
     try {
       setError("");
-      await publishCurrentLocationOnce();
+      if (!navigator.geolocation) {
+        throw new Error("Geolocation is not supported by your browser");
+      }
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10_000,
+          maximumAge: 0,
+        });
+      });
+      const { latitude, longitude, accuracy } = position.coords;
+      console.log(
+        `[FamilyTracker] [updateLocationNow] fix lat=${latitude} lng=${longitude} accuracy=${Math.round(accuracy)}m`,
+      );
+      await _publishToServer(latitude, longitude, accuracy);
       await fetchLatestFamilyLocations({ silent: true });
       await fetchFamily();
     } catch (err) {
@@ -378,6 +473,22 @@ const FamilyTracker = () => {
         `No recent location is available for ${member?.userId?.name || "this member"}.`,
       );
       return;
+    }
+
+    const isStale =
+      latest?.isStale != null
+        ? Boolean(latest.isStale)
+        : computeIsStale(latest);
+
+    if (isStale) {
+      const lastUpdateMs = getMemberLastUpdateMs(latest);
+      const lastSeenLabel = lastUpdateMs
+        ? new Date(lastUpdateMs).toLocaleTimeString()
+        : "unknown";
+      const proceed = window.confirm(
+        `${member?.userId?.name || "This member"}'s location was last updated at ${lastSeenLabel} and may be stale.\n\nOpen map anyway?`,
+      );
+      if (!proceed) return;
     }
 
     setSelectedMember(member);
@@ -606,7 +717,8 @@ const FamilyTracker = () => {
                 My Location Sharing
               </h2>
               <p className="text-sm text-gray-600 mb-3">
-                When sharing is ON, your location is sent every 5 seconds.
+                When sharing is ON, your location is published automatically
+                when GPS accuracy is ≤ 50 m, you move ≥ 5 m, or 30 s elapses.
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <span
