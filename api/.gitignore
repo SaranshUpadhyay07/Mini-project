@@ -2,10 +2,12 @@
 node_modules
 package-lock.json
 
-# Environment variables (NEVER commit secrets)
-.env
-.env.local
-.env.*.local
+# Environment variables (dev-only)
+# NOTE: committing real `.env` files is risky; prefer `.env.example` for production repos.
+# (Unignored as requested.)
+# .env
+# .env.local
+# .env.*.local
 
 # Firebase Service Account keys (CRITICAL - contains private keys)
 config/firebase-service-account.json

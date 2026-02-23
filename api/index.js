@@ -1,10 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { createServer } from "http";
-
 import connectDB from "./config/db.config.js";
-import { setupSocket } from "./socketHandler.js";
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import placesRoutes from "./routes/places.routes.js";
@@ -27,7 +24,7 @@ console.log(`[API] [bootstrap] resolved port ${PORT}`);
 // --------------------
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: true, // allow all origins (reflects request origin)
     credentials: true,
   }),
 );
@@ -92,17 +89,11 @@ app.use((err, req, res, next) => {
 });
 
 // --------------------
-// Start Server with Socket.io
+// Start Server
 // --------------------
-const httpServer = createServer(app);
-console.log("[API] [bootstrap] http server created");
-const io = setupSocket(httpServer);
-console.log("[API] [bootstrap] socket server initialized");
-
-httpServer.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`[API] [serverStart] server listening on port ${PORT}`);
   console.log(`[API] [serverStart] api endpoint http://localhost:${PORT}`);
-  console.log("[API] [serverStart] socket.io ready");
 });
 
 export default app;

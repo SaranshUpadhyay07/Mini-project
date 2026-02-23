@@ -10,15 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-*.local
+# *.local
 
-# Environment variables (NEVER commit secrets)
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.*.local
+# Environment variables
+# NOTE: In dev you requested env files be committed, so these are NOT ignored here.
 
 # Editor directories and files
 .vscode/*

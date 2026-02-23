@@ -9,7 +9,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../config/firebase";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 // Create context
 const AuthContext = createContext(null);

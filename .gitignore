@@ -4,16 +4,14 @@ __pycache__/
 *$py.class
 
 # Virtual environments
-.venv/
-venv/
-env/
+# (Unignored as requested for testing-only repo)
+# .venv/
+# venv/
+# env/
 
 # Environment variables (ALL services)
-.env
-.env.local
-.env.*.local
-**/.env
-**/.env.local
+# NOTE: committing env files (including secrets) is unsafe.
+# You requested to include env files in git, so the ignore rules are removed here.
 
 # OS / editor junk
 .DS_Store

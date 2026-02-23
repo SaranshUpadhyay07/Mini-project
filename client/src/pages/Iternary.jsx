@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 
-const AGENT_BASE = import.meta.env.VITE_AGENT_URL || "http://localhost:8000";
+const AGENT_BASE = import.meta.env.VITE_AGENT_URL ?? "";
 import { NavbarDemo } from "../components/Navbar";
 import Header from "../components/Header";
 import { useAuth } from "../context/AuthContext";

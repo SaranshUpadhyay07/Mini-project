@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { subscribeToLocationUpdates } from "../services/socket";
 
-const SOCKET_STALE_MS = 2 * 60 * 1000; // 2 min without a socket update = stale
+const SOCKET_STALE_MS = 2 * 60 * 1000; // 2 min without an update = stale
 
 /**
- * FamilyMap - Real-time Tracking with WebSockets
- * Architecture: Zero re-renders on location updates
- * - Map instance stored in useRef (persistent)
- * - Socket events directly call Mappls trackingCall()
- * - Only UI overlays (distance/ETA) use useState
+ * FamilyMap - Live Tracking
+ * Note: Socket-based real-time dependency removed. This component now relies on
+ * in-component update mechanisms (no socket subscription).
  */
 
-const FamilyMap = ({ member, currentUser, familyId, onClose }) => {
+const FamilyMap = ({ member, onClose }) => {
   // REFS - Persistent, never cause re-renders
   const mapContainerRef = useRef(null);
   const mapInstance = useRef(null);
@@ -30,14 +27,14 @@ const FamilyMap = ({ member, currentUser, familyId, onClose }) => {
   const MAP_DIV_ID = "mappls-realtime-map";
 
   // ═══════════════════════════════════════════════════════════════
-  // ONE-TIME INITIALIZATION - Socket-based, no polling
+  // ONE-TIME INITIALIZATION
   // ═══════════════════════════════════════════════════════════════
 
   useEffect(() => {
     let isMounted = true;
 
     const init = async () => {
-      console.log("🎬 Initializing Real-time Map...");
+      console.log("🎬 Initializing Live Map...");
 
       try {
         // 1. Load Mappls Scripts
@@ -52,10 +49,7 @@ const FamilyMap = ({ member, currentUser, familyId, onClose }) => {
           await initializeMap();
         }
 
-        // 3. Subscribe to Socket Updates
-        setupSocketListener();
-
-        // 4. Start staleness watchdog
+        // 3. Start staleness watchdog (no socket subscription)
         startStaleWatch();
       } catch (error) {
         console.error("Initialization error:", error);
@@ -313,93 +307,12 @@ const FamilyMap = ({ member, currentUser, familyId, onClose }) => {
   };
 
   // ═══════════════════════════════════════════════════════════════
-  // 🚀 THE SWIGGY MAGIC 🚀 - Socket → Mappls API
+  // Live update hook (Socket removed)
   // ═══════════════════════════════════════════════════════════════
-
-  const setupSocketListener = () => {
-    const unsubscribe = subscribeToLocationUpdates((data) => {
-      console.log("📍 Received location update:", data);
-      console.log(
-        "🔍 Comparing with member firebaseUid:",
-        member.userId.firebaseUid,
-      );
-
-      // Only process updates for the member we're tracking
-      // Compare using Firebase UID (not MongoDB _id)
-      if (data.userId !== member.userId.firebaseUid) {
-        console.log("⏭️ Skipping - different user");
-        return;
-      }
-
-      console.log("✅ Match! Processing location update");
-      handleLiveLocationUpdate(data);
-    });
-
-    // Store unsubscribe function for cleanup
-    unsubscribeRef.current = unsubscribe;
-  };
-
-  const handleLiveLocationUpdate = (data) => {
-    if (!trackingPluginRef.current || !trackingPluginRef.current.trackingCall) {
-      console.warn("⚠️ Tracking plugin not ready");
-      return;
-    }
-
-    // Record time of this update so the stale watchdog can detect silence
-    lastSocketUpdateRef.current = Date.now();
-    setIsStale(false);
-    setStatus("🟢 Live Tracking Active");
-
-    console.log(
-      `🚀 Real-time update: [${data.lat}, ${data.lng}], Heading: ${data.heading}°, Speed: ${data.speed}m/s`,
-    );
-
-    try {
-      // Mappls trackingCall() with real-time parameters from documentation
-      trackingPluginRef.current.trackingCall({
-        location: [data.lng, data.lat], // [Lng, Lat] format (MANDATORY)
-        reRoute: true, // Recalculate route if user deviates (OPTIONAL, default true)
-        heading: true, // Rotate marker based on direction (OPTIONAL, default true)
-        mapCenter: true, // Keep marker centered on map (OPTIONAL, default false) - For Swiggy-like experience
-        polylineRefresh: true, // Remove covered path (OPTIONAL, default true)
-        buffer: 25, // 25m buffer before rerouting (OPTIONAL, default 25)
-        etaRefresh: true, // Update ETA continuously (OPTIONAL, default false)
-        delay: 2000, // 2 second smooth animation (OPTIONAL, default 5000)
-        fitBounds: true, // Auto-fit map to show route (OPTIONAL, default true)
-        smoothFitBounds: "med", // Medium smooth fitbound (OPTIONAL) - every 3 interpolated locations
-        fitboundsOptions: {
-          padding: 100, // Padding around route (OPTIONAL)
-        },
-        fitCoverDistance: true, // Include last movement in fitBounds (OPTIONAL, default false)
-        latentViz: false, // Smooth viz on sudden location jump (OPTIONAL, default false)
-        callback: (response) => {
-          // Update UI metrics from Mappls response
-          if (response && response.dis && response.dur) {
-            setMetrics({
-              distance: (response.dis / 1000).toFixed(2) + " km",
-              eta: Math.ceil(response.dur / 60) + " mins",
-            });
-            console.log(
-              `   📏 ${(response.dis / 1000).toFixed(2)} km | ⏱️ ${Math.ceil(response.dur / 60)} mins`,
-            );
-          }
-        },
-      });
-
-      // Optional: Rotate map to match device orientation (First-person view)
-      // Uncomment if you want the map to physically rotate with device compass
-      /*
-      if (data.heading && mapInstance.current && mapInstance.current.setBearing) {
-        mapInstance.current.setBearing(data.heading, {
-          duration: 2000, // 2 second rotation animation
-        });
-        console.log(`🧭 Map rotated to heading: ${data.heading}°`);
-      }
-      */
-    } catch (error) {
-      console.error("❌ trackingCall error:", error);
-    }
-  };
+  // NOTE:
+  // This component previously depended on Socket.io events to call Mappls
+  // `trackingCall()` in real-time. With sockets removed, there is no active
+  // transport providing incremental location updates into this component.
 
   // ═══════════════════════════════════════════════════════════════
   // RENDER - Modern Overlay UI

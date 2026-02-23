@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import FamilyTracker from "../components/FamilyTracker";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 const FamilyTrackerPage = () => {
   const { currentUser } = useAuth();
