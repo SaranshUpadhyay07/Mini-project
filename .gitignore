@@ -1,0 +1,22 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+# (Unignored as requested for testing-only repo)
+# .venv/
+# venv/
+# env/
+
+# Environment variables (ALL services)
+# NOTE: committing env files (including secrets) is unsafe.
+# You requested to include env files in git, so the ignore rules are removed here.
+
+# OS / editor junk
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log

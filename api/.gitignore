@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+package-lock.json
+
+# Environment variables (dev-only)
+# NOTE: committing real `.env` files is risky; prefer `.env.example` for production repos.
+# (Unignored as requested.)
+.env
+**/.env
+.env.*
+
+
+# Firebase Service Account keys (CRITICAL - contains private keys)
+config/firebase-service-account.json
+config/pilgrim-itinerary-odisha-firebase-adminsdk-fbsvc-c490868502.json
+config/*.json
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Build
+dist
+build
