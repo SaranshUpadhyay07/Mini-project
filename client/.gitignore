@@ -1,4 +1,40 @@
-# Logs
+# =========================
+# 🔐 Environment Variables
+# =========================
+.env
+.env.local
+.env.development
+.env.production
+**/.env
+
+# =========================
+# 🔥 Firebase / Secrets
+# =========================
+# Service account keys (CRITICAL)
+client/src/config/firebase-service-account.json
+*service-account*.json
+
+# Firebase cache (optional)
+.firebase/
+.firebaserc
+
+# =========================
+# 📦 Node Modules
+# =========================
+node_modules/
+
+# =========================
+# 🏗️ Build Output
+# =========================
+dist/
+build/
+dist-ssr/
+.next/
+out/
+
+# =========================
+# 📄 Logs
+# =========================
 logs
 *.log
 npm-debug.log*
@@ -7,25 +43,33 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-.env
-**/.env
-.env.*
+# =========================
+# 💻 OS Files
+# =========================
+.DS_Store
+Thumbs.db
 
-node_modules
-dist
-dist-ssr
-# *.local
-
-# Environment variables
-# NOTE: In dev you requested env files be committed, so these are NOT ignored here.
-
-# Editor directories and files
+# =========================
+# 🧠 IDE / Editor
+# =========================
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# =========================
+# 🧪 Testing
+# =========================
+coverage/
+
+# =========================
+# 📁 Misc
+# =========================
+*.local
+.cache/
+temp/
+tmp/
