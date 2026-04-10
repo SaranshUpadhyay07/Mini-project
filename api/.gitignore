@@ -8,6 +8,8 @@ package-lock.json
 .env
 **/.env
 .env.*
+firebase.config.js
+
 
 
 # Firebase Service Account keys (CRITICAL - contains private keys)
